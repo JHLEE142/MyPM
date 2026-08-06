@@ -155,6 +155,7 @@ export interface Task {
   locked: boolean;
   ai_generated: boolean;
   confidence: number | null;
+  sort_order: number;
   created_at: string;
   updated_at: string;
   dependencies: TaskDependency[];

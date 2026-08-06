@@ -51,6 +51,7 @@ class ScheduleEngine:
                 0 if due else 1,
                 due or date.max,
                 PRIORITY_ORDER.get(str(_get(task, "priority", "medium")), 2),
+                int(_get(task, "sort_order", 0) or 0),
                 task_id,
             )
 

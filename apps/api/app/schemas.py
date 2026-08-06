@@ -240,10 +240,17 @@ class TaskOut(ORMModel):
     locked: bool
     ai_generated: bool
     confidence: float | None
+    sort_order: int
     created_at: datetime
     updated_at: datetime
     dependencies: list[DependencyOut] = Field(default_factory=list)
     source_links: list[SourceLinkOut] = Field(default_factory=list)
+
+
+class TaskReorderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ordered_ids: list[int] = Field(min_length=1, max_length=1000)
 
 
 class TaskComplete(BaseModel):

@@ -163,6 +163,7 @@ class Task(Base):
     locked: Mapped[bool] = mapped_column(Boolean, default=False)
     ai_generated: Mapped[bool] = mapped_column(Boolean, default=False)
     confidence: Mapped[float | None] = mapped_column(Float)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

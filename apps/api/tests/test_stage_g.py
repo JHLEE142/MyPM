@@ -242,3 +242,39 @@ def test_ensure_schema_adds_cadence_to_legacy_sqlite_tasks(monkeypatch):
     database.ensure_schema()
     assert "cadence" in {column["name"] for column in inspect(legacy_engine).get_columns("tasks")}
     legacy_engine.dispose()
+
+
+def test_reorder_tasks_changes_list_and_schedule_order(client):
+    project = _project(client)
+    ids = [
+        client.post(f"/api/projects/{project['id']}/tasks", json={"title": f"업무 {i}", "estimated_hours": 8}).json()["id"]
+        for i in range(3)
+    ]
+    reversed_ids = list(reversed(ids))
+    response = client.post(f"/api/projects/{project['id']}/tasks/reorder", json={"ordered_ids": reversed_ids})
+    assert response.status_code == 200
+    assert response.json()["updated"] == 3
+    listed = [task["id"] for task in client.get(f"/api/projects/{project['id']}/tasks").json()]
+    assert listed == reversed_ids
+    generated = client.post(f"/api/projects/{project['id']}/schedule/generate", json={}).json()
+    placements = generated["schedule_snapshot"]["placements"]
+    first_by_task = {}
+    for item in placements:
+        first_by_task.setdefault(item["task_id"], item["date"])
+    ordered_by_first_date = sorted(first_by_task, key=lambda task_id: first_by_task[task_id])
+    assert ordered_by_first_date == reversed_ids
+
+
+def test_reorder_rejects_foreign_and_duplicate_ids(client):
+    project_a = _project(client)
+    project_b = client.post("/api/projects", json={"name": "다른 프로젝트"}).json()
+    task_a = client.post(f"/api/projects/{project_a['id']}/tasks", json={"title": "A", "estimated_hours": 1}).json()
+    task_b = client.post(f"/api/projects/{project_b['id']}/tasks", json={"title": "B", "estimated_hours": 1}).json()
+    foreign = client.post(
+        f"/api/projects/{project_a['id']}/tasks/reorder", json={"ordered_ids": [task_a["id"], task_b["id"]]}
+    )
+    assert foreign.status_code == 422
+    duplicate = client.post(
+        f"/api/projects/{project_a['id']}/tasks/reorder", json={"ordered_ids": [task_a["id"], task_a["id"]]}
+    )
+    assert duplicate.status_code == 422

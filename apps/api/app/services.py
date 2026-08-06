@@ -53,7 +53,7 @@ def task_query(project_id: int):
         select(Task)
         .where(Task.project_id == project_id)
         .options(selectinload(Task.dependencies), selectinload(Task.source_links))
-        .order_by(Task.id)
+        .order_by(Task.sort_order, Task.id)
     )
 
 
@@ -111,6 +111,7 @@ def _schedule_task_value(task: Task, *, remaining_only: bool = False) -> dict[st
         "estimated_hours": remaining,
         "original_estimated_hours": task.estimated_hours,
         "remaining_estimated_hours": remaining,
+        "sort_order": task.sort_order,
         "dependency_ids": [dependency.depends_on_task_id for dependency in task.dependencies],
     }
 

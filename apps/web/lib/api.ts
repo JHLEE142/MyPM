@@ -126,6 +126,11 @@ export const api = {
     remove: (taskId: number) => request<void>(`/api/tasks/${taskId}`, { method: "DELETE" }),
     removeAll: (projectId: number) =>
       request<{ deleted: number }>(`/api/projects/${projectId}/tasks`, { method: "DELETE" }),
+    reorder: (projectId: number, orderedIds: number[]) =>
+      request<{ updated: number }>(`/api/projects/${projectId}/tasks/reorder`, {
+        method: "POST",
+        body: json({ ordered_ids: orderedIds }),
+      }),
   },
   schedule: {
     get: (projectId: number) => request<ScheduleVersion>(`/api/projects/${projectId}/schedule`),

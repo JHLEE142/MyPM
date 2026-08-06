@@ -35,6 +35,8 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
   const [newPriority, setNewPriority] = useState<TaskPriority>("medium");
   const [newDueDate, setNewDueDate] = useState("");
   const [taskBusyId, setTaskBusyId] = useState<number | "new" | "all" | null>(null);
+  const [dragging, setDragging] = useState<{ group: string; id: number } | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
   const snapshot = schedule.schedule_snapshot;
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
   const listTasks = useMemo(
@@ -157,6 +159,40 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
     finally { setTaskBusyId(null); }
   }
 
+  async function reorderSiblings(siblings: Task[], draggedId: number, targetId: number) {
+    if (draggedId === targetId) return;
+    const ids = siblings.map((task) => task.id);
+    const from = ids.indexOf(draggedId);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ...ids.splice(from, 1));
+    setError("");
+    try { await api.tasks.reorder(project.id, ids); await onChange(); }
+    catch (e) { setError(errorMessage(e)); }
+  }
+
+  function dragProps(group: string, task: Task, siblings: Task[]) {
+    return {
+      draggable: true,
+      onDragStart: (event: React.DragEvent) => { event.dataTransfer.effectAllowed = "move"; setDragging({ group, id: task.id }); },
+      onDragEnd: () => { setDragging(null); setDragOverId(null); },
+      onDragOver: (event: React.DragEvent) => {
+        if (dragging?.group === group && dragging.id !== task.id) { event.preventDefault(); setDragOverId(task.id); }
+      },
+      onDragLeave: () => setDragOverId((value) => (value === task.id ? null : value)),
+      onDrop: (event: React.DragEvent) => {
+        event.preventDefault();
+        setDragOverId(null);
+        if (dragging?.group === group) void reorderSiblings(siblings, dragging.id, task.id);
+        setDragging(null);
+      },
+    };
+  }
+
+  function dragHighlight(task: Task): string {
+    return dragOverId === task.id ? " outline outline-2 outline-[#166a58] outline-offset-1" : dragging?.id === task.id ? " opacity-50" : "";
+  }
+
   async function removeAllTasks() {
     if (!window.confirm(`이 프로젝트의 업무 ${tasks.length}개를 전부 삭제할까요? 되돌릴 수 없습니다.`)) return;
     setTaskBusyId("all"); setError("");
@@ -196,8 +232,9 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
               const monthlyStats = taskStats.get(monthlyTask.id) ?? { hours: monthlyTask.estimated_hours, progress: 0, completedHours: 0 };
               const weeklyTasks = childrenByParent.get(monthlyTask.id) ?? [];
               return (
-                <div key={monthlyTask.id} className="rounded-xl border border-[#dfe7e4] bg-white p-3">
+                <div key={monthlyTask.id} className={`rounded-xl border border-[#dfe7e4] bg-white p-3${dragHighlight(monthlyTask)}`} {...dragProps("monthly", monthlyTask, monthlyRoots)}>
                   <div className="flex items-center gap-2.5">
+                    <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                     <span className="text-base text-[#166a58]" aria-hidden>●</span>
                     <div className="min-w-0 flex-1"><p className="text-sm font-black">{monthlyTask.title}</p><p className="text-[11px] text-[#71807b]">파생 진도 {Math.round(monthlyStats.progress)}% · 총 {formatHours(monthlyStats.hours)}</p></div>
                     <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === monthlyTask.id} aria-label={`${monthlyTask.title} 하위 포함 삭제`} onClick={() => void removeTask(monthlyTask)}>하위 포함 삭제</button>
@@ -206,15 +243,17 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                     {weeklyTasks.map((weeklyTask) => {
                       const weeklyStats = taskStats.get(weeklyTask.id) ?? { hours: weeklyTask.estimated_hours, progress: 0, completedHours: 0 };
                       return (
-                        <div key={weeklyTask.id} className="rounded-lg bg-[#f7faf8] p-2.5">
+                        <div key={weeklyTask.id} className={`rounded-lg bg-[#f7faf8] p-2.5${dragHighlight(weeklyTask)}`} {...dragProps(`weekly-${monthlyTask.id}`, weeklyTask, weeklyTasks)}>
                           <div className="flex items-center gap-2.5">
+                            <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                             <span className="text-[#3b7c6c]" aria-hidden>◦</span>
                             <div className="min-w-0 flex-1"><p className="text-sm font-bold">{weeklyTask.title}</p><p className="text-[11px] text-[#71807b]">{Math.round(weeklyStats.progress)}% · {formatHours(weeklyStats.hours)}</p></div>
                             <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === weeklyTask.id} aria-label={`${weeklyTask.title} 하위 포함 삭제`} onClick={() => void removeTask(weeklyTask)}>하위 포함 삭제</button>
                           </div>
                           <div className="mt-1.5 space-y-1 pl-5">
                             {(childrenByParent.get(weeklyTask.id) ?? []).map((dailyTask) => (
-                              <div key={dailyTask.id} className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${dailyTask.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}`}>
+                              <div key={dailyTask.id} className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${dailyTask.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}${dragHighlight(dailyTask)}`} {...dragProps(`daily-${weeklyTask.id}`, dailyTask, childrenByParent.get(weeklyTask.id) ?? [])}>
+                                <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                                 <span className="text-[#71807b]" aria-hidden>·</span>
                                 <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={dailyTask.status === "completed"} disabled={taskBusyId === dailyTask.id} aria-label={`${dailyTask.title} 완료 체크`} onChange={(event) => void toggleComplete(dailyTask, event.target.checked)} />
                                 <p className={`min-w-0 flex-1 truncate text-sm ${dailyTask.status === "completed" ? "text-[#6e837b] line-through" : "font-medium"}`}>{dailyTask.title}</p>
@@ -235,7 +274,8 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                 <h4 className="mb-2 text-xs font-black text-[#5e706a]">기타 업무</h4>
                 <div className="space-y-1">
                   {flatTasks.map((task) => (
-                    <div key={task.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${task.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}`}>
+                    <div key={task.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${task.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}${dragHighlight(task)}`} {...dragProps("flat", task, flatTasks)}>
+                      <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                       <span className="text-[#71807b]" aria-hidden>·</span>
                       <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />
                       <div className="min-w-0 flex-1"><p className={`truncate text-sm font-bold ${task.status === "completed" ? "text-[#6e837b] line-through" : ""}`}>{task.title}</p><p className="text-[11px] text-[#71807b]">{formatHours(task.estimated_hours)} · {Math.round(task.progress_percent)}%{task.due_date ? ` · 기한 ${formatDate(task.due_date)}` : ""}{task.status !== "completed" && !["approved", "scheduled"].includes(task.status) ? ` · ${taskStatusLabel[task.status] ?? task.status}` : ""}</p></div>

@@ -61,6 +61,7 @@ from ..schemas import (
     TaskCreate,
     TaskOut,
     TaskPatch,
+    TaskReorderRequest,
 )
 from ..services import (
     calculate_forecast,
@@ -835,7 +836,8 @@ def create_task(project_id: int, payload: TaskCreate, db: Session = Depends(get_
         source_block_ids=payload.source_block_ids,
     )
     values = payload.model_dump(exclude={"dependency_ids", "source_block_ids"})
-    task = Task(project_id=project_id, **values)
+    max_sort = db.scalar(select(func.max(Task.sort_order)).where(Task.project_id == project_id)) or 0
+    task = Task(project_id=project_id, sort_order=max_sort + 1, **values)
     db.add(task)
     db.flush()
     for dependency_id in sorted(set(payload.dependency_ids)):
@@ -859,6 +861,26 @@ def create_task(project_id: int, payload: TaskCreate, db: Session = Depends(get_
 def list_tasks(project_id: int, db: Session = Depends(get_db)):
     _project(db, project_id)
     return list(db.scalars(task_query(project_id)))
+
+
+@router.post("/projects/{project_id}/tasks/reorder")
+def reorder_tasks(project_id: int, payload: TaskReorderRequest, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    ordered_ids = payload.ordered_ids
+    if len(set(ordered_ids)) != len(ordered_ids):
+        raise HTTPException(422, "ordered_ids에 중복이 있습니다")
+    tasks = {
+        task.id: task
+        for task in db.scalars(select(Task).where(Task.project_id == project_id, Task.id.in_(ordered_ids)))
+    }
+    if set(ordered_ids) != set(tasks):
+        raise HTTPException(422, "ordered_ids에 이 프로젝트의 업무가 아닌 항목이 있습니다")
+    # 형제 그룹 단위 재정렬: 전달된 목록 순서대로 sort_order를 재부여한다.
+    base = min(task.sort_order for task in tasks.values())
+    for index, task_id in enumerate(ordered_ids):
+        tasks[task_id].sort_order = base + index
+    db.commit()
+    return {"updated": len(ordered_ids)}
 
 
 @router.get("/projects/{project_id}/milestones", response_model=list[MilestoneOut])
