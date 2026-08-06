@@ -15,12 +15,14 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from parsers import UnsupportedFileTypeError, parse_document
+from parsers import IMAGE_EXTENSIONS, IMAGE_MIME, UnsupportedFileTypeError, parse_document
+from parsers.url_fetcher import UrlFetchError, fetch_url_blocks
 from scheduler.capacity import capacity_warning
 from scheduler.dependencies import DependencyCycleError, assert_acyclic
 from ai.drafts import calculate_completeness, merge_draft_fields, missing_required_fields
 from ai.cli_providers import ProviderError
 from ai.document_analyzer import build_draft_prompt
+from ai.openai_provider import describe_image_safely
 from ai.router import AiRouter, get_ai_router, router_status
 from ai.schemas import DraftFields
 
@@ -73,7 +75,6 @@ from ..services import (
 
 
 router = APIRouter(prefix="/api")
-ALLOWED_EXTENSIONS = {"pdf", "docx", "xlsx", "txt", "md", "hwpx"}
 MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(20 * 1024 * 1024)))
 STORAGE_ROOT = Path(os.getenv("STORAGE_PATH", "storage"))
 UPLOAD_CHUNK_SIZE = 1024 * 1024
@@ -142,7 +143,9 @@ async def _read_upload_chunks(uploaded: Any) -> bytes:
             raise HTTPException(413, f"파일 크기는 {MAX_UPLOAD_SIZE // (1024 * 1024)}MB 이하여야 합니다")
 
 
-def _write_and_parse(path: Path, raw: bytes, file_type: str) -> tuple[list[dict[str, Any]], Exception | None]:
+def _write_and_parse(
+    path: Path, raw: bytes, file_type: str, original_name: str = ""
+) -> tuple[list[dict[str, Any]], Exception | None]:
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         path.write_bytes(raw)
@@ -150,7 +153,13 @@ def _write_and_parse(path: Path, raw: bytes, file_type: str) -> tuple[list[dict[
         path.unlink(missing_ok=True)
         raise
     try:
-        return parse_document(path, file_type), None
+        blocks = parse_document(path, file_type, original_name)
+        if file_type in IMAGE_EXTENSIONS:
+            caption = describe_image_safely(raw, IMAGE_MIME.get(file_type, "image/png"))
+            if caption:
+                blocks[0]["content"] = f"{blocks[0]['content']}\n이미지 내용: {caption}"
+                blocks[0]["location_metadata"]["ai_caption"] = True
+        return blocks, None
     except Exception as exc:
         return [], exc
 
@@ -372,6 +381,42 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     return Response(status_code=204)
 
 
+def _sanitize_file_type(suffix: str) -> str:
+    cleaned = suffix.lower().lstrip(".")
+    return cleaned if cleaned and len(cleaned) <= 10 and cleaned.isalnum() else "bin"
+
+
+async def _create_url_source(project_id: int, url: str, db: Session):
+    url = url.strip()
+    if not url or len(url) > 2000:
+        raise HTTPException(422, "올바른 URL을 입력해 주세요")
+    try:
+        title, blocks = await run_in_threadpool(fetch_url_blocks, url)
+    except UrlFetchError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, "URL 내용을 가져오지 못했습니다. 잠시 후 다시 시도해 주세요") from exc
+    source = SourceDocument(
+        project_id=project_id,
+        file_name=(title or url)[:255],
+        file_type="url",
+        storage_path=None,
+        analysis_status="extracting",
+    )
+    try:
+        db.add(source)
+        db.flush()
+        source.extracted_text = "\n\n".join(block["content"] for block in blocks)
+        for block in blocks:
+            db.add(SourceBlock(source_document_id=source.id, **block))
+        source.analysis_status = "text_extracted"
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return db.scalar(_source_query(project_id).where(SourceDocument.id == source.id))
+
+
 @router.post("/projects/{project_id}/sources", response_model=SourceDocumentOut, status_code=201)
 async def create_source(project_id: int, request: Request, db: Session = Depends(get_db)):
     _project(db, project_id)
@@ -392,10 +437,7 @@ async def create_source(project_id: int, request: Request, db: Session = Depends
         text_value = form.get("text")
         if uploaded is not None and hasattr(uploaded, "read"):
             file_name = Path(str(getattr(uploaded, "filename", "upload"))).name
-            file_type = Path(file_name).suffix.lower().lstrip(".")
-            if file_type not in ALLOWED_EXTENSIONS:
-                message = "HWPX 또는 PDF로 변환해 다시 업로드해 주세요" if file_type == "hwp" else "지원하지 않는 파일 형식입니다"
-                raise HTTPException(415, message)
+            file_type = _sanitize_file_type(Path(file_name).suffix)
             raw = await _read_upload_chunks(uploaded)
         elif text_value is not None:
             file_name = Path(str(form.get("file_name") or "direct-input.txt")).name
@@ -407,8 +449,12 @@ async def create_source(project_id: int, request: Request, db: Session = Depends
             raise HTTPException(400, "file 또는 text가 필요합니다")
     elif "application/json" in content_type:
         payload = await request.json()
-        if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
-            raise HTTPException(400, "text가 필요합니다")
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "text 또는 url이 필요합니다")
+        if isinstance(payload.get("url"), str):
+            return await _create_url_source(project_id, payload["url"], db)
+        if not isinstance(payload.get("text"), str):
+            raise HTTPException(400, "text 또는 url이 필요합니다")
         file_name = Path(str(payload.get("file_name") or "direct-input.txt")).name
         file_type = Path(file_name).suffix.lower().lstrip(".") or "txt"
         if file_type not in {"txt", "md"}:
@@ -416,9 +462,6 @@ async def create_source(project_id: int, request: Request, db: Session = Depends
         raw = payload["text"].encode("utf-8")
     else:
         raise HTTPException(415, "multipart/form-data 또는 application/json만 지원합니다")
-    if file_type not in ALLOWED_EXTENSIONS:
-        message = "HWPX 또는 PDF로 변환해 다시 업로드해 주세요" if file_type == "hwp" else "지원하지 않는 파일 형식입니다"
-        raise HTTPException(415, message)
     if len(raw) > MAX_UPLOAD_SIZE:
         raise HTTPException(413, f"파일 크기는 {MAX_UPLOAD_SIZE // (1024 * 1024)}MB 이하여야 합니다")
     if not raw:
@@ -428,7 +471,7 @@ async def create_source(project_id: int, request: Request, db: Session = Depends
     stored_name = f"{uuid.uuid4().hex}.{file_type}"
     storage_path = project_dir / stored_name
     try:
-        blocks, parse_error = await run_in_threadpool(_write_and_parse, storage_path, raw, file_type)
+        blocks, parse_error = await run_in_threadpool(_write_and_parse, storage_path, raw, file_type, file_name)
     except Exception as exc:
         raise HTTPException(500, f"파일 저장에 실패했습니다 ({type(exc).__name__})") from exc
     source = SourceDocument(

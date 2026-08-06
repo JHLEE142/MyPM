@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from collections import defaultdict
@@ -331,6 +332,11 @@ FACT_FIELD_MAP = {
 }
 
 
+def review_gate_enabled() -> bool:
+    """기본은 자동 승인. AI_REVIEW_GATE=1이면 SPEC 원칙 1의 검토 게이트를 복원한다."""
+    return os.getenv("AI_REVIEW_GATE", "").strip().lower() in {"1", "true", "yes"}
+
+
 def run_analysis(run_id: int, project_id: int) -> None:
     ANALYSIS_SEMAPHORE.acquire()
     db = SessionLocal()
@@ -428,7 +434,7 @@ def run_analysis(run_id: int, project_id: int) -> None:
                         fact_type=fact_type,
                         content=content,
                         confidence=item.confidence,
-                        review_status="pending_review",
+                        review_status="pending_review" if review_gate_enabled() else "approved",
                         source_block_id=item.source_block_id,
                     )
                 )
@@ -466,7 +472,7 @@ def run_analysis(run_id: int, project_id: int) -> None:
                 title=item.title,
                 description=description,
                 milestone_id=milestone_id,
-                status="pending_review",
+                status="pending_review" if review_gate_enabled() else "approved",
                 priority=item.priority if item.priority in {"critical", "high", "medium", "low"} else "medium",
                 estimated_hours=item.estimated_hours,
                 due_date=item.due_date,
@@ -487,7 +493,7 @@ def run_analysis(run_id: int, project_id: int) -> None:
         run.status = "completed"
         run.completed_at = utcnow()
         for source in sources:
-            source.analysis_status = "review_required"
+            source.analysis_status = "review_required" if review_gate_enabled() else "completed"
         db.commit()
     except Exception as exc:
         db.rollback()

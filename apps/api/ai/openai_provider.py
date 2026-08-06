@@ -62,3 +62,49 @@ class OpenAiApiProvider(AnalysisProvider):
 
     def chat_draft(self, fields: DraftFields, conversation: list[dict[str, str]]) -> DraftChatResult:
         return parse_structured_json(self._complete(build_draft_prompt(fields, conversation)), DraftChatResult)
+
+
+MAX_CAPTION_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def describe_image_safely(image_bytes: bytes, mime_type: str) -> str | None:
+    """업로드된 이미지의 내용을 한국어로 요약. 키 없음·실패 시 None (업로드는 계속 진행)."""
+    import base64
+
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key or len(image_bytes) > MAX_CAPTION_IMAGE_BYTES or mime_type == "image/svg+xml":
+        return None
+    encoded = base64.standard_b64encode(image_bytes).decode("ascii")
+    try:
+        response = httpx.post(
+            OPENAI_API_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "이 이미지는 프로젝트 참고 자료다. 이미지 안의 텍스트·표·일정·수치를 포함해 "
+                                    "내용을 한국어 5문장 이내로 요약하라. 이미지에 없는 내용은 추측하지 마라."
+                                ),
+                            },
+                            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded}"}},
+                        ],
+                    }
+                ],
+                "max_tokens": 500,
+            },
+            timeout=60,
+        )
+        if response.status_code != 200:
+            logger.warning("image caption status=%d", response.status_code)
+            return None
+        content = response.json()["choices"][0]["message"]["content"]
+        return content.strip()[:2000] if isinstance(content, str) and content.strip() else None
+    except (httpx.HTTPError, KeyError, IndexError, ValueError):
+        logger.warning("image caption request failed", exc_info=True)
+        return None

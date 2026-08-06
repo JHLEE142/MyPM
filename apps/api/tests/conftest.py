@@ -11,6 +11,8 @@ os.environ.pop("ANTHROPIC_API_KEY", None)
 os.environ.pop("OPENAI_API_KEY", None)
 os.environ["AI_ROUTER_ORDER"] = "mock"
 os.environ["AI_ANALYSIS_ROUTER_ORDER"] = "mock"
+# 기존 검토 게이트 플로우 테스트 보존용 — 런타임 기본은 자동 승인
+os.environ["AI_REVIEW_GATE"] = "1"
 
 import pytest
 from fastapi.testclient import TestClient

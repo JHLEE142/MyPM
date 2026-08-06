@@ -88,6 +88,11 @@ export const api = {
       form.append("file", file);
       return request<SourceDocument>(`/api/projects/${projectId}/sources`, { method: "POST", body: form });
     },
+    addUrl: (projectId: number, url: string) =>
+      request<SourceDocument>(`/api/projects/${projectId}/sources`, {
+        method: "POST",
+        body: json({ url }),
+      }),
     addText: (projectId: number, text: string, fileName: string) =>
       request<SourceDocument>(`/api/projects/${projectId}/sources`, {
         method: "POST",

@@ -25,6 +25,7 @@ export default function SourcesPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [textName, setTextName] = useState("직접 입력.md");
   const [text, setText] = useState("");
+  const [url, setUrl] = useState("");
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -78,6 +79,14 @@ export default function SourcesPage() {
     finally { setBusy(false); }
   }
 
+  async function addUrl(event: React.FormEvent) {
+    event.preventDefault(); if (!url.trim()) return;
+    setBusy(true); setError(""); setNotice("");
+    try { await api.sources.addUrl(projectId, url.trim()); setUrl(""); setNotice("URL 내용을 가져왔습니다."); await load(true); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setBusy(false); }
+  }
+
   async function startAnalysis() {
     setBusy(true); setError(""); setNotice("");
     try { const result = await api.analysis.start(projectId); setAnalysis({ status: result.status, run_id: result.run_id }); setNotice("AI 분석을 시작했습니다. 완료될 때까지 상태를 확인합니다."); }
@@ -108,20 +117,26 @@ export default function SourcesPage() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <section className="panel p-5 sm:p-6">
-          <h3 className="font-black">파일 업로드</h3><p className="mt-1 text-xs text-[#71807b]">PDF, DOCX, XLSX, TXT, MD, HWPX · 파일당 최대 20MB</p>
+          <h3 className="font-black">파일 업로드</h3><p className="mt-1 text-xs text-[#71807b]">모든 파일 형식 지원 (문서·이미지·기타) · 파일당 최대 20MB</p>
           <div role="button" tabIndex={0} onClick={() => fileInput.current?.click()} onKeyDown={(e) => { if (e.key === "Enter") fileInput.current?.click(); }} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); selectFiles(e.dataTransfer.files); }} className={`mt-5 cursor-pointer rounded-2xl border-2 border-dashed p-8 text-center transition-colors ${dragging ? "border-[#166a58] bg-[#eaf5f0]" : "border-[#c9d8d2] bg-[#f7faf8] hover:border-[#5f9c89]"}`}>
-            <input ref={fileInput} className="sr-only" type="file" multiple accept=".pdf,.docx,.xlsx,.txt,.md,.hwpx" onChange={(e) => selectFiles(e.target.files)} />
-            <span className="text-2xl" aria-hidden>⇧</span><p className="mt-2 font-bold">파일을 끌어다 놓거나 선택하세요</p><p className="mt-1 text-xs text-[#7a8984]">HWP 바이너리는 HWPX 또는 PDF로 변환해 주세요.</p>
+            <input ref={fileInput} className="sr-only" type="file" multiple onChange={(e) => selectFiles(e.target.files)} />
+            <span className="text-2xl" aria-hidden>⇧</span><p className="mt-2 font-bold">파일을 끌어다 놓거나 선택하세요</p><p className="mt-1 text-xs text-[#7a8984]">문서는 원문 위치를 보존하고, 이미지는 AI가 내용을 요약해 참고합니다.</p>
           </div>
           {files.length > 0 && <div className="mt-4 space-y-2">{files.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center justify-between rounded-lg bg-[#f1f5f3] px-3 py-2 text-xs"><span className="truncate font-bold">{file.name}</span><button type="button" onClick={() => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}<button type="button" className="btn btn-primary mt-2 w-full" disabled={busy} onClick={() => void uploadFiles()}>{busy ? "업로드 중…" : `${files.length}개 파일 업로드`}</button></div>}
         </section>
 
-        <form onSubmit={addText} className="panel p-5 sm:p-6">
-          <h3 className="font-black">텍스트 직접 입력</h3><p className="mt-1 text-xs text-[#71807b]">회의 메모, 인터뷰, 이메일 요구사항을 붙여넣으세요.</p>
-          <label className="mt-5 block"><span className="label">자료 이름</span><input className="field" value={textName} onChange={(e) => setTextName(e.target.value)} /></label>
-          <label className="mt-4 block"><span className="label">내용</span><textarea className="field min-h-36" required value={text} onChange={(e) => setText(e.target.value)} placeholder="분석할 텍스트를 입력하세요." /></label>
-          <button className="btn btn-secondary mt-4 w-full" disabled={busy || !text.trim()}>텍스트 자료 추가</button>
-        </form>
+        <div className="space-y-5">
+          <form onSubmit={addUrl} className="panel p-5 sm:p-6">
+            <h3 className="font-black">URL 가져오기</h3><p className="mt-1 text-xs text-[#71807b]">웹페이지의 텍스트와 이미지 정보를 자료로 저장합니다.</p>
+            <div className="mt-4 flex gap-2"><input className="field" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/spec" aria-label="가져올 URL" /><button className="btn btn-secondary shrink-0" disabled={busy || !url.trim()}>{busy ? "가져오는 중…" : "가져오기"}</button></div>
+          </form>
+          <form onSubmit={addText} className="panel p-5 sm:p-6">
+            <h3 className="font-black">텍스트 직접 입력</h3><p className="mt-1 text-xs text-[#71807b]">회의 메모, 인터뷰, 이메일 요구사항을 붙여넣으세요.</p>
+            <label className="mt-5 block"><span className="label">자료 이름</span><input className="field" value={textName} onChange={(e) => setTextName(e.target.value)} /></label>
+            <label className="mt-4 block"><span className="label">내용</span><textarea className="field min-h-36" required value={text} onChange={(e) => setText(e.target.value)} placeholder="분석할 텍스트를 입력하세요." /></label>
+            <button className="btn btn-secondary mt-4 w-full" disabled={busy || !text.trim()}>텍스트 자료 추가</button>
+          </form>
+        </div>
       </div>
 
       <section className="panel mt-5 overflow-hidden">
