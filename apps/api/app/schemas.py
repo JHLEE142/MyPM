@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ai.schemas import DraftFields
+
 
 ProjectStatus = Literal["active", "paused", "completed"]
 TaskStatus = Literal[
@@ -82,6 +84,52 @@ class ProjectOut(ORMModel):
     status: ProjectStatus
     created_at: datetime
     updated_at: datetime
+
+
+class DraftConversationMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ProjectDraftOut(ORMModel):
+    id: int
+    status: Literal["active", "confirmed", "discarded"]
+    fields: DraftFields
+    completeness_percent: float
+    conversation: list[DraftConversationMessage]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectDraftPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fields: DraftFields
+
+
+class DraftChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class DraftChatResponse(BaseModel):
+    reply: str
+    fields: DraftFields
+    completeness_percent: float
+    next_question: str | None
+
+
+class RouterProviderStatus(BaseModel):
+    name: str
+    available: bool
+    today_calls: int
+    quota: int | None
+    last_success_at: datetime | None
+
+
+class RouterStatus(BaseModel):
+    providers: list[RouterProviderStatus]
 
 
 class SourceBlockOut(ORMModel):

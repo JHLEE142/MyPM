@@ -378,6 +378,7 @@ def run_analysis(run_id: int, project_id: int) -> None:
                     }
                 )
             analyses.append(provider.analyze_document(source.id, blocks))
+        run.model_provider = getattr(provider, "last_provider_name", None) or provider.name
         merged = merge_project_analyses(analyses)
         generated = generate_tasks(merged)
 

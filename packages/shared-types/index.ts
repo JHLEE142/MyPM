@@ -42,6 +42,59 @@ export interface ProjectCreate {
 
 export type ProjectPatch = Partial<ProjectCreate>;
 
+export interface DraftTaskCandidate {
+  title: string;
+  estimated_hours: number;
+  priority: TaskPriority;
+}
+
+export interface DraftFields {
+  name?: string | null;
+  description?: string | null;
+  goal?: string | null;
+  start_date?: string | null;
+  target_date?: string | null;
+  work_days?: number[] | null;
+  daily_capacity_hours?: number | null;
+  buffer_ratio?: number | null;
+  excluded_dates?: string[] | null;
+  task_candidates?: DraftTaskCandidate[] | null;
+}
+
+export interface DraftMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface Draft {
+  id: number;
+  status: "active" | "confirmed" | "discarded";
+  fields: DraftFields;
+  completeness_percent: number;
+  conversation: DraftMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DraftChatResponse {
+  reply: string;
+  fields: DraftFields;
+  completeness_percent: number;
+  next_question: string | null;
+}
+
+export interface RouterProviderStatus {
+  name: string;
+  available: boolean;
+  today_calls: number;
+  quota: number | null;
+  last_success_at: string | null;
+}
+
+export interface RouterStatus {
+  providers: RouterProviderStatus[];
+}
+
 export interface SourceBlock {
   id: number;
   source_document_id: number;

@@ -3,12 +3,16 @@ import type {
   AnalysisStatus,
   ApprovalRequest,
   Dashboard,
+  Draft,
+  DraftChatResponse,
+  DraftFields,
   Milestone,
   Pace,
   Project,
   ProjectCreate,
   ProjectPatch,
   ReplanRequest,
+  RouterStatus,
   ScheduleComparison,
   ScheduleVersion,
   ScheduleVersionSummary,
@@ -39,9 +43,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     let message = `요청에 실패했습니다. (${response.status})`;
     try {
-      const body = (await response.json()) as { detail?: string | Array<{ msg?: string }> };
+      const body = (await response.json()) as { detail?: string | { message?: string } | Array<{ msg?: string }> };
       if (typeof body.detail === "string") message = body.detail;
       else if (Array.isArray(body.detail)) message = body.detail.map((item) => item.msg).filter(Boolean).join(", ");
+      else if (body.detail && typeof body.detail.message === "string") message = body.detail.message;
     } catch {
       // JSON 오류 본문이 아니면 기본 메시지를 사용합니다.
     }
@@ -61,6 +66,20 @@ export const api = {
     update: (id: number, payload: ProjectPatch) =>
       request<Project>(`/api/projects/${id}`, { method: "PATCH", body: json(payload) }),
     remove: (id: number) => request<void>(`/api/projects/${id}`, { method: "DELETE" }),
+  },
+  drafts: {
+    create: () => request<Draft>("/api/project-drafts", { method: "POST" }),
+    get: (id: number) => request<Draft>(`/api/project-drafts/${id}`),
+    update: (id: number, fields: DraftFields) =>
+      request<Draft>(`/api/project-drafts/${id}`, { method: "PATCH", body: json({ fields }) }),
+    chat: (id: number, message: string) =>
+      request<DraftChatResponse>(`/api/project-drafts/${id}/chat`, {
+        method: "POST",
+        body: json({ message }),
+      }),
+    confirm: (id: number) =>
+      request<Project>(`/api/project-drafts/${id}/confirm`, { method: "POST" }),
+    discard: (id: number) => request<void>(`/api/project-drafts/${id}`, { method: "DELETE" }),
   },
   sources: {
     list: (projectId: number) => request<SourceDocument[]>(`/api/projects/${projectId}/sources`),
@@ -124,6 +143,9 @@ export const api = {
     request<Dashboard>(`/api/projects/${projectId}/dashboard?as_of=${encodeURIComponent(asOf)}`),
   pace: (projectId: number, asOf: string) =>
     request<Pace>(`/api/projects/${projectId}/pace?as_of=${encodeURIComponent(asOf)}`),
+  router: {
+    status: () => request<RouterStatus>("/api/ai/router/status"),
+  },
 };
 
 export function errorMessage(error: unknown): string {

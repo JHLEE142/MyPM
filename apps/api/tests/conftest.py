@@ -8,6 +8,7 @@ TEST_ROOT = Path(tempfile.mkdtemp(prefix="pacepm-tests-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_ROOT / 'test.db'}"
 os.environ["STORAGE_PATH"] = str(TEST_ROOT / "storage")
 os.environ.pop("ANTHROPIC_API_KEY", None)
+os.environ["AI_ROUTER_ORDER"] = "mock"
 
 import pytest
 from fastapi.testclient import TestClient

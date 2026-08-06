@@ -22,6 +22,9 @@ services:
       STORAGE_PATH: /app/storage
       MAX_UPLOAD_SIZE: "20971520"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_ROUTER_ORDER: ${AI_ROUTER_ORDER:-anthropic_api,claude_agent,codex_cli,mock}
+      AI_ANALYSIS_ROUTER_ORDER: ${AI_ANALYSIS_ROUTER_ORDER:-anthropic_api,mock}
+      AI_ROUTER_QUOTAS: ${AI_ROUTER_QUOTAS:-}
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     volumes:
       - source_storage:/app/storage

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AiRouterWidget } from "@/components/ai-router-widget";
 
 export function AppHeader() {
   return (
@@ -12,6 +13,7 @@ export function AppHeader() {
           </span>
         </Link>
         <nav className="flex items-center gap-2">
+          <AiRouterWidget />
           <Link href="/projects" className="btn btn-ghost btn-sm">프로젝트</Link>
           <Link href="/projects/new" className="btn btn-primary btn-sm"><span aria-hidden>＋</span> 새 프로젝트</Link>
         </nav>

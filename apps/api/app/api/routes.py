@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import uuid
 from collections import defaultdict
 from datetime import date
@@ -10,16 +11,23 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select
+from pydantic import ValidationError
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from parsers import UnsupportedFileTypeError, parse_document
 from scheduler.capacity import capacity_warning
 from scheduler.dependencies import DependencyCycleError, assert_acyclic
+from ai.drafts import calculate_completeness, merge_draft_fields, missing_required_fields
+from ai.cli_providers import ProviderError
+from ai.document_analyzer import build_draft_prompt
+from ai.router import AiRouter, get_ai_router, router_status
+from ai.schemas import DraftFields
 
 from ..database import get_db
 from ..models import (
     AnalysisRun,
+    ProjectDraft,
     Milestone,
     Project,
     ProjectFact,
@@ -33,12 +41,17 @@ from ..models import (
 )
 from ..schemas import (
     ApprovalRequest,
+    DraftChatRequest,
+    DraftChatResponse,
     FactReviewUpdate,
     MilestoneOut,
     ProjectCreate,
+    ProjectDraftOut,
+    ProjectDraftPatch,
     ProjectOut,
     ProjectPatch,
     ReplanRequest,
+    RouterStatus,
     ScheduleGenerate,
     SourceDocumentOut,
     TaskBlock,
@@ -65,6 +78,10 @@ MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(20 * 1024 * 1024)))
 STORAGE_ROOT = Path(os.getenv("STORAGE_PATH", "storage"))
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 APPROVED_TASK_STATUSES = {"approved", "scheduled", "in_progress", "completed", "on_hold", "blocked"}
+MAX_ACTIVE_DRAFTS = 200
+MAX_DRAFT_PROMPT_CHARACTERS = 100_000
+_DRAFT_CHAT_GUARD = threading.Lock()
+_DRAFT_CHATS_IN_FLIGHT: set[int] = set()
 
 
 def _project(db: Session, project_id: int) -> Project:
@@ -72,6 +89,13 @@ def _project(db: Session, project_id: int) -> Project:
     if project is None:
         raise HTTPException(404, "project not found")
     return project
+
+
+def _draft(db: Session, draft_id: int, *, with_for_update: bool = False) -> ProjectDraft:
+    draft = db.get(ProjectDraft, draft_id, with_for_update=with_for_update)
+    if draft is None:
+        raise HTTPException(404, "project draft not found")
+    return draft
 
 
 def _task(db: Session, task_id: int) -> Task:
@@ -154,6 +178,154 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(project)
     return project
+
+
+@router.post("/project-drafts", response_model=ProjectDraftOut, status_code=201)
+def create_project_draft(db: Session = Depends(get_db)):
+    active_count = int(db.scalar(select(func.count(ProjectDraft.id)).where(ProjectDraft.status == "active")) or 0)
+    if active_count >= MAX_ACTIVE_DRAFTS:
+        raise HTTPException(409, "활성 draft가 200개에 도달했습니다. 오래된 draft를 정리한 뒤 다시 시도해 주세요")
+    first_question = "안녕하세요! 만들 프로젝트의 이름은 무엇인가요?"
+    draft = ProjectDraft(
+        fields={},
+        completeness_percent=0.0,
+        conversation=[{"role": "assistant", "content": first_question}],
+    )
+    db.add(draft)
+    db.commit()
+    db.refresh(draft)
+    return draft
+
+
+@router.get("/project-drafts/{draft_id}", response_model=ProjectDraftOut)
+def get_project_draft(draft_id: int, db: Session = Depends(get_db)):
+    return _draft(db, draft_id)
+
+
+@router.patch("/project-drafts/{draft_id}", response_model=ProjectDraftOut)
+def patch_project_draft(draft_id: int, payload: ProjectDraftPatch, db: Session = Depends(get_db)):
+    draft = _draft(db, draft_id, with_for_update=True)
+    if draft.status != "active":
+        raise HTTPException(409, "active draft만 수정할 수 있습니다")
+    draft.fields = merge_draft_fields(draft.fields or {}, payload.fields)
+    draft.completeness_percent = calculate_completeness(draft.fields)
+    db.commit()
+    db.refresh(draft)
+    return draft
+
+
+@router.post("/project-drafts/{draft_id}/chat", response_model=DraftChatResponse)
+def chat_project_draft(draft_id: int, payload: DraftChatRequest, db: Session = Depends(get_db)):
+    with _DRAFT_CHAT_GUARD:
+        if draft_id in _DRAFT_CHATS_IN_FLIGHT:
+            raise HTTPException(409, "이미 응답을 생성 중입니다")
+        _DRAFT_CHATS_IN_FLIGHT.add(draft_id)
+    try:
+        draft = _draft(db, draft_id, with_for_update=True)
+        if draft.status != "active":
+            raise HTTPException(409, "active draft에서만 대화할 수 있습니다")
+        conversation = list(draft.conversation or [])
+        if sum(item.get("role") == "user" for item in conversation) >= 100:
+            raise HTTPException(409, "draft당 대화는 100턴까지 가능합니다")
+        conversation.append({"role": "user", "content": payload.message.strip()})
+        current_fields = DraftFields.model_validate(draft.fields or {})
+        if len(build_draft_prompt(current_fields, conversation)) > MAX_DRAFT_PROMPT_CHARACTERS:
+            raise HTTPException(422, "대화 내용이 너무 깁니다")
+        try:
+            result = get_ai_router().chat_draft(current_fields, conversation)
+        except ProviderError as exc:
+            raise HTTPException(
+                503,
+                "AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해 주세요",
+            ) from exc
+        merged = merge_draft_fields(draft.fields or {}, result.updated_fields)
+        completeness = calculate_completeness(merged)
+        conversation.append({"role": "assistant", "content": result.reply})
+        draft.fields = merged
+        draft.completeness_percent = completeness
+        draft.conversation = conversation
+        db.commit()
+        db.refresh(draft)
+        return {
+            "reply": result.reply,
+            "fields": DraftFields.model_validate(merged),
+            "completeness_percent": completeness,
+            "next_question": result.next_question,
+        }
+    finally:
+        with _DRAFT_CHAT_GUARD:
+            _DRAFT_CHATS_IN_FLIGHT.discard(draft_id)
+
+
+@router.post("/project-drafts/{draft_id}/confirm", response_model=ProjectOut, status_code=201)
+def confirm_project_draft(draft_id: int, db: Session = Depends(get_db)):
+    draft = _draft(db, draft_id, with_for_update=True)
+    if draft.status != "active":
+        raise HTTPException(409, "active draft만 확정할 수 있습니다")
+    fields = DraftFields.model_validate(draft.fields or {}).model_dump(mode="json", exclude_none=True)
+    missing = missing_required_fields(fields)
+    if missing:
+        raise HTTPException(422, detail={"message": "필수 필드가 부족합니다", "missing_fields": missing})
+    try:
+        project_values = ProjectCreate(
+            name=fields["name"],
+            description=fields.get("description"),
+            start_date=fields["start_date"],
+            target_date=fields["target_date"],
+            work_days=fields.get("work_days", [0, 1, 2, 3, 4]),
+            daily_capacity_hours=fields["daily_capacity_hours"],
+            buffer_ratio=fields.get("buffer_ratio", 0.2),
+            excluded_dates=fields.get("excluded_dates", []),
+        )
+    except ValidationError as exc:
+        raise HTTPException(422, detail=exc.errors(include_url=False, include_context=False)) from exc
+    values = project_values.model_dump()
+    values["excluded_dates"] = [value.isoformat() for value in project_values.excluded_dates]
+    project = Project(**values)
+    db.add(project)
+    db.flush()
+    if fields.get("goal"):
+        db.add(
+            ProjectFact(
+                project_id=project.id,
+                fact_type="goal",
+                content=fields["goal"],
+                confidence=1.0,
+                review_status="approved",
+                source_block_id=None,
+            )
+        )
+    for candidate in fields.get("task_candidates", []):
+        db.add(
+            Task(
+                project_id=project.id,
+                title=candidate["title"],
+                estimated_hours=candidate["estimated_hours"],
+                priority=candidate.get("priority", "medium"),
+                status="approved",
+                ai_generated=False,
+                confidence=None,
+            )
+        )
+    draft.status = "confirmed"
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+@router.delete("/project-drafts/{draft_id}", status_code=204)
+def discard_project_draft(draft_id: int, db: Session = Depends(get_db)):
+    draft = _draft(db, draft_id)
+    if draft.status == "confirmed":
+        raise HTTPException(409, "confirmed draft는 폐기할 수 없습니다")
+    draft.status = "discarded"
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.get("/ai/router/status", response_model=RouterStatus)
+def get_ai_router_status():
+    return {"providers": router_status()}
 
 
 @router.get("/projects", response_model=list[ProjectOut])

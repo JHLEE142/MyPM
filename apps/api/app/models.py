@@ -37,6 +37,31 @@ class Project(Base):
     schedule_versions: Mapped[list[ScheduleVersion]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
+class ProjectDraft(Base):
+    __tablename__ = "project_drafts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    fields: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    completeness_percent: Mapped[float] = mapped_column(Float, default=0.0)
+    conversation: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AiUsage(Base):
+    __tablename__ = "ai_usage"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(80), index=True)
+    operation: Mapped[str] = mapped_column(String(40), index=True)
+    success: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    input_chars: Mapped[int] = mapped_column(Integer)
+    output_chars: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class SourceDocument(Base):
     __tablename__ = "source_documents"
 

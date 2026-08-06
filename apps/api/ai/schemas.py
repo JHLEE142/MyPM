@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from pydantic import BaseModel, Field, model_validator
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SourceReference(BaseModel):
@@ -40,6 +42,8 @@ class TaskCandidate(BaseModel):
 
 
 class DocumentAnalysis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     document_summary: str
     goals: list[ExtractedItem] = Field(default_factory=list)
     deliverables: list[ExtractedItem] = Field(default_factory=list)
@@ -76,3 +80,56 @@ class GeneratedTaskSet(BaseModel):
         if invalid:
             raise ValueError(f"dependencies reference missing tasks: {sorted(invalid)}")
         return self
+
+
+class DraftTaskCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=255)
+    estimated_hours: float = Field(ge=0, le=10000)
+    priority: Literal["critical", "high", "medium", "low"] = "medium"
+
+
+class DraftFields(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=4000)
+    goal: str | None = Field(default=None, max_length=4000)
+    start_date: date | None = None
+    target_date: date | None = None
+    work_days: list[int] | None = None
+    daily_capacity_hours: float | None = Field(default=None, gt=0, le=24)
+    buffer_ratio: float | None = Field(default=None, ge=0, le=0.9)
+    excluded_dates: list[date] | None = Field(default=None, max_length=200)
+    task_candidates: list[DraftTaskCandidate] | None = Field(default=None, max_length=100)
+
+    @field_validator("start_date", "target_date")
+    @classmethod
+    def date_in_range(cls, value: date | None) -> date | None:
+        if value is not None and not date(1970, 1, 1) <= value <= date(2100, 12, 31):
+            raise ValueError("date must be between 1970-01-01 and 2100-12-31")
+        return value
+
+    @field_validator("excluded_dates")
+    @classmethod
+    def excluded_dates_in_range(cls, values: list[date] | None) -> list[date] | None:
+        if values is not None and any(not date(1970, 1, 1) <= value <= date(2100, 12, 31) for value in values):
+            raise ValueError("excluded_dates must be between 1970-01-01 and 2100-12-31")
+        return sorted(set(values)) if values is not None else None
+
+    @field_validator("work_days")
+    @classmethod
+    def valid_work_days(cls, values: list[int] | None) -> list[int] | None:
+        if values is not None and (not values or any(value < 0 or value > 6 for value in values)):
+            raise ValueError("work_days must contain weekday numbers from 0 to 6")
+        return sorted(set(values)) if values is not None else None
+
+
+class DraftChatResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reply: str = Field(min_length=1, max_length=8000)
+    updated_fields: DraftFields = Field(default_factory=DraftFields)
+    completeness_percent: float = Field(ge=0, le=100)
+    next_question: str | None = None
