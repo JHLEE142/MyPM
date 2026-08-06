@@ -172,16 +172,27 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
   }
 
   function dragProps(group: string, task: Task, siblings: Task[]) {
+    // 트리가 중첩 draggable이므로 stopPropagation으로 상위 행의 핸들러 실행(드래그 상태 덮어쓰기)을 막는다.
     return {
       draggable: true,
-      onDragStart: (event: React.DragEvent) => { event.dataTransfer.effectAllowed = "move"; setDragging({ group, id: task.id }); },
-      onDragEnd: () => { setDragging(null); setDragOverId(null); },
-      onDragOver: (event: React.DragEvent) => {
-        if (dragging?.group === group && dragging.id !== task.id) { event.preventDefault(); setDragOverId(task.id); }
+      onDragStart: (event: React.DragEvent) => {
+        event.stopPropagation();
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(task.id));
+        setDragging({ group, id: task.id });
       },
-      onDragLeave: () => setDragOverId((value) => (value === task.id ? null : value)),
+      onDragEnd: (event: React.DragEvent) => { event.stopPropagation(); setDragging(null); setDragOverId(null); },
+      onDragOver: (event: React.DragEvent) => {
+        if (dragging?.group === group && dragging.id !== task.id) {
+          event.preventDefault();
+          event.stopPropagation();
+          setDragOverId(task.id);
+        }
+      },
+      onDragLeave: (event: React.DragEvent) => { event.stopPropagation(); setDragOverId((value) => (value === task.id ? null : value)); },
       onDrop: (event: React.DragEvent) => {
         event.preventDefault();
+        event.stopPropagation();
         setDragOverId(null);
         if (dragging?.group === group) void reorderSiblings(siblings, dragging.id, task.id);
         setDragging(null);
