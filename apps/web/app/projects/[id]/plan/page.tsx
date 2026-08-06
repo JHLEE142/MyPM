@@ -49,12 +49,15 @@ export default function PlanPage() {
   if (!project || !dashboard) return <main className="page-shell py-10"><ErrorState message={error || "프로젝트를 불러올 수 없습니다."} onRetry={() => void load(true)} /></main>;
   const pace = dashboard.pace; const difference = pace.actual_progress_percent - pace.planned_progress_percent;
   const prediction = pace.forecast.estimated_completion_date ? formatDate(pace.forecast.estimated_completion_date) : "예측 데이터 부족 — 최소 3개 작업일 필요";
+  const latestVersion = versions.at(-1);
+  const scheduleStale = Boolean(latestVersion && Date.parse(project.updated_at) > Date.parse(latestVersion.created_at));
 
   return (
     <main className="page-shell py-8 sm:py-10">
       <ProjectNav projectId={projectId} projectName={project.name} />
       <div className="mb-7"><p className="eyebrow">Plan & control</p><h2 className="mt-2 text-3xl font-black tracking-[-.04em]">계획과 진행 현황</h2><p className="mt-2 text-sm text-[#687874]">실행 일정에서 업무를 직접 추가·체크하고, 진행 현황을 확인하세요.</p></div>
       {error && <div className="mb-4"><ErrorState message={error} onRetry={() => void load()} /></div>}
+      {scheduleStale && <div className="warning-banner mb-5"><b>프로젝트 설정이 변경되었습니다 — 일정을 다시 생성해야 반영됩니다</b><a href="#schedule-planner" className="ml-3 text-sm font-black underline">일정 생성 버튼으로 이동</a></div>}
 
       <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6" aria-label="프로젝트 대시보드">
         <DashboardCard label="전체 진행률" value={`${Math.round(pace.actual_progress_percent)}%`} detail={`예정 ${Math.round(pace.planned_progress_percent)}%`} progress={pace.actual_progress_percent} />

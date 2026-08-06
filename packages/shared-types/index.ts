@@ -1,6 +1,7 @@
 export type ProjectStatus = "active" | "paused" | "completed" | string;
 export type PaceStatus = "normal" | "warning" | "risk" | "critical";
 export type TaskPriority = "critical" | "high" | "medium" | "low";
+export type TaskCadence = "monthly" | "weekly" | "daily" | null;
 export type TaskStatus =
   | "extracted"
   | "pending_review"
@@ -138,6 +139,7 @@ export interface Task {
   project_id: number;
   milestone_id: number | null;
   parent_task_id: number | null;
+  cadence: TaskCadence;
   title: string;
   description: string | null;
   status: TaskStatus;

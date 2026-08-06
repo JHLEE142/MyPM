@@ -66,6 +66,7 @@ from ..services import (
     calculate_forecast,
     calculate_pace,
     generate_schedule,
+    leaf_task_query,
     project_or_none,
     record_task_event,
     replan_schedule,
@@ -108,6 +109,25 @@ def _task(db: Session, task_id: int) -> Task:
     if task is None:
         raise HTTPException(404, "task not found")
     return task
+
+
+def _task_has_children(db: Session, task_id: int) -> bool:
+    return db.scalar(select(Task.id).where(Task.parent_task_id == task_id).limit(1)) is not None
+
+
+def _task_subtree(db: Session, root: Task) -> list[Task]:
+    project_tasks = list(db.scalars(select(Task).where(Task.project_id == root.project_id).order_by(Task.id)))
+    children: dict[int, list[Task]] = defaultdict(list)
+    for task in project_tasks:
+        if task.parent_task_id is not None:
+            children[task.parent_task_id].append(task)
+    result: list[Task] = []
+    stack = [root]
+    while stack:
+        task = stack.pop()
+        result.append(task)
+        stack.extend(children.get(task.id, []))
+    return result
 
 
 def _source_query(project_id: int):
@@ -598,7 +618,7 @@ def analysis_status(project_id: int, db: Session = Depends(get_db)):
 def analysis_review(project_id: int, db: Session = Depends(get_db)):
     _project(db, project_id)
     facts = list(db.scalars(select(ProjectFact).where(ProjectFact.project_id == project_id).order_by(ProjectFact.id)))
-    tasks = list(db.scalars(task_query(project_id)))
+    tasks = list(db.scalars(leaf_task_query(project_id)))
     referenced_ids = {fact.source_block_id for fact in facts if fact.source_block_id is not None}
     referenced_ids.update(link.source_block_id for task in tasks if task.ai_generated for link in task.source_links)
     blocks = list(db.scalars(select(SourceBlock).where(SourceBlock.id.in_(referenced_ids)).order_by(SourceBlock.id))) if referenced_ids else []
@@ -676,6 +696,10 @@ def approve_analysis(project_id: int, payload: ApprovalRequest, db: Session = De
                 for block_id in sorted(set(source_block_ids)):
                     db.add(TaskSourceLink(task_id=task.id, source_block_id=block_id, relevance_score=1.0))
             task.status = "approved"
+        if _task_has_children(db, task.id):
+            for descendant in _task_subtree(db, task)[1:]:
+                if descendant.ai_generated and descendant.status == "pending_review":
+                    descendant.status = task.status
         changed["tasks"] += 1
     for decision in payload.facts:
         fact = db.get(ProjectFact, decision.id)
@@ -703,8 +727,7 @@ def approve_analysis(project_id: int, payload: ApprovalRequest, db: Session = De
         db.rollback()
         raise
     pending_tasks = db.scalar(
-        select(Task.id).where(
-            Task.project_id == project_id,
+        leaf_task_query(project_id).where(
             Task.ai_generated.is_(True),
             Task.status == "pending_review",
         ).limit(1)
@@ -716,6 +739,24 @@ def approve_analysis(project_id: int, payload: ApprovalRequest, db: Session = De
         ).limit(1)
     )
     if pending_tasks is None and pending_facts is None:
+        for task in db.scalars(
+            select(Task).where(
+                Task.project_id == project_id,
+                Task.ai_generated.is_(True),
+                Task.status == "pending_review",
+            )
+        ):
+            if _task_has_children(db, task.id):
+                leaf_descendants = [
+                    descendant
+                    for descendant in _task_subtree(db, task)[1:]
+                    if not _task_has_children(db, descendant.id)
+                ]
+                task.status = (
+                    "rejected"
+                    if leaf_descendants and all(descendant.status == "rejected" for descendant in leaf_descendants)
+                    else "approved"
+                )
         for source in db.scalars(select(SourceDocument).where(SourceDocument.project_id == project_id)):
             if source.analysis_status == "review_required":
                 source.analysis_status = "completed"
@@ -842,6 +883,10 @@ def update_task(task_id: int, payload: TaskPatch, db: Session = Depends(get_db))
     task = _task(db, task_id)
     values = payload.model_dump(exclude_unset=True)
     requested_status = values.get("status")
+    if _task_has_children(db, task.id) and (
+        requested_status == "completed" or (task.status == "completed" and requested_status not in {None, "completed"})
+    ):
+        raise HTTPException(409, "하위 업무를 완료하세요")
     if (
         task.ai_generated
         and task.status == "pending_review"
@@ -890,6 +935,8 @@ def update_task(task_id: int, payload: TaskPatch, db: Session = Depends(get_db))
 @router.post("/tasks/{task_id}/complete", response_model=TaskOut)
 def complete_task(task_id: int, payload: TaskComplete | None = None, db: Session = Depends(get_db)):
     task = _task(db, task_id)
+    if _task_has_children(db, task.id):
+        raise HTTPException(409, "하위 업무를 완료하세요")
     if task.status in {"pending_review", "rejected"}:
         raise HTTPException(409, "검토 대기 또는 거절 업무는 완료할 수 없습니다")
     payload = payload or TaskComplete()
@@ -916,6 +963,8 @@ def complete_task(task_id: int, payload: TaskComplete | None = None, db: Session
 @router.post("/tasks/{task_id}/reopen", response_model=TaskOut)
 def reopen_task(task_id: int, db: Session = Depends(get_db)):
     task = _task(db, task_id)
+    if _task_has_children(db, task.id):
+        raise HTTPException(409, "하위 업무를 완료하세요")
     if task.status != "completed":
         raise HTTPException(409, "완료된 업무만 다시 열 수 있습니다")
     completed_event = db.scalar(
@@ -962,7 +1011,8 @@ def block_task(task_id: int, payload: TaskBlock, db: Session = Depends(get_db)):
 @router.delete("/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = _task(db, task_id)
-    db.delete(task)
+    for descendant in reversed(_task_subtree(db, task)):
+        db.delete(descendant)
     db.commit()
     return Response(status_code=204)
 
@@ -1089,9 +1139,13 @@ def get_dashboard(project_id: int, as_of: date | None = None, db: Session = Depe
         .order_by(ScheduleVersion.version.desc())
     )
     placements = version.schedule_snapshot.get("placements", []) if version else []
-    today_items = [item for item in placements if item["date"] == as_of.isoformat()]
-    tasks = list(db.scalars(task_query(project_id)))
+    tasks = list(db.scalars(leaf_task_query(project_id)))
     task_map = {task.id: task for task in tasks}
+    today_items = [
+        item
+        for item in placements
+        if item["date"] == as_of.isoformat() and int(item["task_id"]) in task_map
+    ]
     assigned = sum(float(item["hours"]) for item in today_items)
     effective_capacity = round(project.daily_capacity_hours * (1 - project.buffer_ratio), 6)
     warning = capacity_warning(assigned, effective_capacity)

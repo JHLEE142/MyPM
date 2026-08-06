@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from ai.document_analyzer import get_provider
 from ai.project_merger import merge_project_analyses
@@ -52,6 +52,13 @@ def task_query(project_id: int):
         .where(Task.project_id == project_id)
         .options(selectinload(Task.dependencies), selectinload(Task.source_links))
         .order_by(Task.id)
+    )
+
+
+def leaf_task_query(project_id: int):
+    child = aliased(Task)
+    return task_query(project_id).where(
+        ~select(child.id).where(child.parent_task_id == Task.id).exists()
     )
 
 
@@ -137,18 +144,26 @@ def _save_schedule_version(
     raise RuntimeError("schedule version allocation failed")
 
 
-def generate_schedule(db: Session, project: Project, reason: str = "initial plan") -> ScheduleVersion:
+def generate_schedule(
+    db: Session,
+    project: Project,
+    reason: str = "initial plan",
+    *,
+    as_of: date | None = None,
+) -> ScheduleVersion:
+    as_of = as_of or date.today()
     tasks = list(db.scalars(task_query(project.id)))
-    eligible = [task for task in tasks if task.status in SCHEDULABLE_STATUSES and task.status != "completed"]
+    leaf_tasks = list(db.scalars(leaf_task_query(project.id)))
+    eligible = [task for task in leaf_tasks if task.status in SCHEDULABLE_STATUSES and task.status != "completed"]
     snapshot = ScheduleEngine().generate(
         [_schedule_task_value(task) for task in eligible],
-        start_date=project.start_date,
+        start_date=max(project.start_date, as_of),
         target_date=project.target_date,
         work_days=project.work_days,
         daily_capacity_hours=project.daily_capacity_hours,
         buffer_ratio=project.buffer_ratio,
         excluded_dates=_excluded(project),
-        satisfied_dependency_ends=_completed_dependency_ends(tasks, project.start_date),
+        satisfied_dependency_ends=_completed_dependency_ends(leaf_tasks, project.start_date),
     )
     return _save_schedule_version(db, project.id, reason, snapshot, tasks)
 
@@ -161,9 +176,10 @@ def replan_schedule(db: Session, project: Project, reason: str, strategy: str = 
         .limit(1)
     )
     tasks = list(db.scalars(task_query(project.id)))
+    leaf_tasks = list(db.scalars(leaf_task_query(project.id)))
     protected_ids = {
         task.id
-        for task in tasks
+        for task in leaf_tasks
         if task.status == "completed"
         or task.locked
         or task.status in {"meeting", "review"}
@@ -176,7 +192,7 @@ def replan_schedule(db: Session, project: Project, reason: str, strategy: str = 
     reserved_task_ids = protected_ids & set(previous_by_task)
     reserved: list[dict[str, Any]] = []
     unsatisfied_reserved_ids: set[int] = set()
-    task_by_id = {task.id: task for task in tasks}
+    task_by_id = {task.id: task for task in leaf_tasks}
     for task_id in sorted(reserved_task_ids):
         task = task_by_id[task_id]
         expected = task.estimated_hours
@@ -195,7 +211,7 @@ def replan_schedule(db: Session, project: Project, reason: str, strategy: str = 
             })
     deferred_tasks = [
         task
-        for task in tasks
+        for task in leaf_tasks
         if strategy == "defer_low_priority"
         and task.priority == "low"
         and task.progress_percent <= 0
@@ -206,7 +222,7 @@ def replan_schedule(db: Session, project: Project, reason: str, strategy: str = 
     deferred_ids = {task.id for task in deferred_tasks}
     movable = [
         task
-        for task in tasks
+        for task in leaf_tasks
         if task.id not in reserved_task_ids
         and task.id not in deferred_ids
         and task.status in SCHEDULABLE_STATUSES
@@ -221,7 +237,7 @@ def replan_schedule(db: Session, project: Project, reason: str, strategy: str = 
         buffer_ratio=project.buffer_ratio,
         excluded_dates=_excluded(project),
         reserved_placements=reserved,
-        satisfied_dependency_ends=_completed_dependency_ends(tasks, project.start_date),
+        satisfied_dependency_ends=_completed_dependency_ends(leaf_tasks, project.start_date),
         unsatisfied_dependency_ids=unsatisfied_reserved_ids,
     )
     snapshot["protected_task_ids"] = sorted(protected_ids)
@@ -234,7 +250,11 @@ def replan_schedule(db: Session, project: Project, reason: str, strategy: str = 
 
 def calculate_forecast(db: Session, project: Project, as_of: date | None = None) -> dict[str, Any]:
     as_of = as_of or date.today()
-    tasks = [task for task in db.scalars(task_query(project.id)) if task.status not in {"pending_review", "extracted", "rejected"}]
+    tasks = [
+        task
+        for task in db.scalars(leaf_task_query(project.id))
+        if task.status not in {"pending_review", "extracted", "rejected"}
+    ]
     remaining = sum(task.estimated_hours * (1 - task.progress_percent / 100) for task in tasks)
     logs: dict[date, float] = defaultdict(float)
     for task in tasks:
@@ -250,7 +270,12 @@ def calculate_forecast(db: Session, project: Project, as_of: date | None = None)
 
 def calculate_pace(db: Session, project: Project, as_of: date | None = None) -> dict[str, Any]:
     as_of = as_of or date.today()
-    tasks = [task for task in db.scalars(task_query(project.id)) if task.status not in {"pending_review", "extracted", "rejected"}]
+    tasks = [
+        task
+        for task in db.scalars(leaf_task_query(project.id))
+        if task.status not in {"pending_review", "extracted", "rejected"}
+    ]
+    leaf_ids = {task.id for task in tasks}
     actual = weighted_progress(tasks)
     versions = list(
         db.scalars(
@@ -262,17 +287,27 @@ def calculate_pace(db: Session, project: Project, as_of: date | None = None) -> 
     baseline: list[dict[str, Any]] = []
     baseline_ids: set[int] = set()
     for index, version in enumerate(versions):
-        version_placements = version.schedule_snapshot.get("placements", [])
+        version_placements = [
+            placement
+            for placement in version.schedule_snapshot.get("placements", [])
+            if int(placement["task_id"]) in leaf_ids
+        ]
         grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for placement in version_placements:
             grouped[int(placement["task_id"])].append(placement)
         if index == 0:
             baseline.extend(version_placements)
-            baseline_ids = {int(task_id) for task_id in version.schedule_snapshot.get("task_ids", [])}
+            baseline_ids = {
+                int(task_id)
+                for task_id in version.schedule_snapshot.get("task_ids", [])
+                if int(task_id) in leaf_ids
+            }
             if not baseline_ids:
                 baseline_ids = set(grouped)
                 baseline_ids.update(
-                    int(item["task_id"]) for item in version.schedule_snapshot.get("unscheduled", [])
+                    int(item["task_id"])
+                    for item in version.schedule_snapshot.get("unscheduled", [])
+                    if int(item["task_id"]) in leaf_ids
                 )
             continue
         for task_id in sorted(set(grouped) - baseline_ids):
@@ -293,6 +328,7 @@ def calculate_pace(db: Session, project: Project, as_of: date | None = None) -> 
     predicted = forecast.get("estimated_completion_date")
     delay_days = max(0, (date.fromisoformat(str(predicted)) - project.target_date).days) if predicted else 0
     critical_blocked = any(task.status == "blocked" and task.priority == "critical" for task in tasks)
+    milestone_child = aliased(Task)
     critical_milestone_failed = db.scalar(
         select(Milestone.id)
         .join(Task, Task.milestone_id == Milestone.id)
@@ -300,6 +336,7 @@ def calculate_pace(db: Session, project: Project, as_of: date | None = None) -> 
             Milestone.project_id == project.id,
             Milestone.target_date < as_of,
             Task.status.in_(sorted(APPROVED_TASK_STATUSES - {"completed"})),
+            ~select(milestone_child.id).where(milestone_child.parent_task_id == Task.id).exists(),
         )
         .limit(1)
     ) is not None
@@ -386,16 +423,19 @@ def run_analysis(run_id: int, project_id: int) -> None:
             analyses.append(provider.analyze_document(source.id, blocks))
         run.model_provider = getattr(provider, "last_provider_name", None) or provider.name
         merged = merge_project_analyses(analyses)
-        generated = generate_tasks(merged)
+        generate_hierarchy = getattr(provider, "generate_hierarchical_tasks", None)
+        generated = generate_hierarchy(merged) if callable(generate_hierarchy) else generate_tasks(merged)
 
         referenced_blocks: list[int] = []
         for field in FACT_FIELD_MAP:
             referenced_blocks.extend(item.source_block_id for item in getattr(merged, field))
-        for task in generated.tasks:
-            for reference in task.source_references:
-                if (reference.source_id, reference.block_id) not in valid_refs:
-                    raise ValueError(f"존재하지 않는 source_block 참조: {reference.source_id}/{reference.block_id}")
-                referenced_blocks.append(reference.block_id)
+        for monthly_item in generated.monthly:
+            for weekly_item in monthly_item.weekly:
+                for daily_item in weekly_item.daily:
+                    for reference in daily_item.source_references:
+                        if (reference.source_id, reference.block_id) not in valid_refs:
+                            raise ValueError(f"존재하지 않는 source_block 참조: {reference.source_id}/{reference.block_id}")
+                        referenced_blocks.append(reference.block_id)
         valid_block_ids = {block_id for _, block_id in valid_refs}
         if any(block_id not in valid_block_ids for block_id in referenced_blocks):
             raise ValueError("존재하지 않는 source_block_id가 포함되었습니다")
@@ -445,48 +485,128 @@ def run_analysis(run_id: int, project_id: int) -> None:
             )
         }
         title_to_task: dict[str, Task] = {}
-        for item in generated.tasks:
-            milestone_id = None
-            if item.milestone and item.milestone.strip():
-                milestone_title = item.milestone.strip()
-                milestone_key = milestone_title.casefold()
-                milestone = milestone_by_title.get(milestone_key)
-                if milestone is None:
-                    milestone = Milestone(
-                        project_id=project_id,
-                        title=milestone_title,
-                        sort_order=len(milestone_by_title),
-                    )
-                    db.add(milestone)
-                    db.flush()
-                    milestone_by_title[milestone_key] = milestone
-                if item.due_date and (milestone.target_date is None or item.due_date < milestone.target_date):
-                    milestone.target_date = item.due_date
-                milestone_id = milestone.id
-            description = item.description.strip()
-            if item.acceptance_criteria:
-                criteria = "\n".join(f"- {criterion}" for criterion in item.acceptance_criteria)
-                description = f"{description}\n\n완료 기준:\n{criteria}" if description else f"완료 기준:\n{criteria}"
-            task = Task(
-                project_id=project_id,
-                title=item.title,
-                description=description,
-                milestone_id=milestone_id,
-                status="pending_review" if review_gate_enabled() else "approved",
-                priority=item.priority if item.priority in {"critical", "high", "medium", "low"} else "medium",
-                estimated_hours=item.estimated_hours,
-                due_date=item.due_date,
-                ai_generated=True,
-                confidence=item.confidence,
+        generated_status = "pending_review" if review_gate_enabled() else "approved"
+        priority_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+        for monthly_item in generated.monthly:
+            daily_items = [daily for weekly in monthly_item.weekly for daily in weekly.daily]
+            first_daily = daily_items[0]
+            due_dates = [daily.due_date for daily in daily_items if daily.due_date is not None]
+            monthly_due_date = max(due_dates) if due_dates else None
+            monthly_hours = sum(daily.estimated_hours for daily in daily_items)
+            monthly_priority = max(
+                (daily.priority for daily in daily_items),
+                key=lambda value: priority_order.get(value, 1),
             )
-            db.add(task)
+
+            milestone_title = monthly_item.title.strip()
+            milestone_key = milestone_title.casefold()
+            milestone = milestone_by_title.get(milestone_key)
+            if milestone is None:
+                milestone = Milestone(
+                    project_id=project_id,
+                    title=milestone_title,
+                    target_date=monthly_due_date,
+                    sort_order=len(milestone_by_title),
+                )
+                db.add(milestone)
+                db.flush()
+                milestone_by_title[milestone_key] = milestone
+            elif monthly_due_date and (milestone.target_date is None or monthly_due_date < milestone.target_date):
+                milestone.target_date = monthly_due_date
+
+            monthly_task = Task(
+                project_id=project_id,
+                milestone_id=milestone.id,
+                cadence="monthly",
+                title=monthly_item.title,
+                description=monthly_item.description.strip(),
+                status=generated_status,
+                priority=monthly_priority,
+                estimated_hours=monthly_hours,
+                due_date=monthly_due_date,
+                ai_generated=True,
+                confidence=first_daily.confidence,
+            )
+            db.add(monthly_task)
             db.flush()
-            title_to_task[item.title] = task
-            for reference in item.source_references:
-                db.add(TaskSourceLink(task_id=task.id, source_block_id=reference.block_id, relevance_score=item.confidence))
-        for item in generated.tasks:
+            first_reference = first_daily.source_references[0]
+            db.add(
+                TaskSourceLink(
+                    task_id=monthly_task.id,
+                    source_block_id=first_reference.block_id,
+                    relevance_score=first_daily.confidence,
+                )
+            )
+
+            for weekly_item in monthly_item.weekly:
+                weekly_due_dates = [daily.due_date for daily in weekly_item.daily if daily.due_date is not None]
+                weekly_due_date = max(weekly_due_dates) if weekly_due_dates else None
+                weekly_hours = sum(daily.estimated_hours for daily in weekly_item.daily)
+                weekly_priority = max(
+                    (daily.priority for daily in weekly_item.daily),
+                    key=lambda value: priority_order.get(value, 1),
+                )
+                weekly_first = weekly_item.daily[0]
+                weekly_task = Task(
+                    project_id=project_id,
+                    milestone_id=milestone.id,
+                    parent_task_id=monthly_task.id,
+                    cadence="weekly",
+                    title=weekly_item.title,
+                    description=weekly_item.description.strip(),
+                    status=generated_status,
+                    priority=weekly_priority,
+                    estimated_hours=weekly_hours,
+                    due_date=weekly_due_date,
+                    ai_generated=True,
+                    confidence=weekly_first.confidence,
+                )
+                db.add(weekly_task)
+                db.flush()
+                db.add(
+                    TaskSourceLink(
+                        task_id=weekly_task.id,
+                        source_block_id=weekly_first.source_references[0].block_id,
+                        relevance_score=weekly_first.confidence,
+                    )
+                )
+
+                for daily_item in weekly_item.daily:
+                    daily_task = Task(
+                        project_id=project_id,
+                        milestone_id=milestone.id,
+                        parent_task_id=weekly_task.id,
+                        cadence="daily",
+                        title=daily_item.title,
+                        description=daily_item.description.strip(),
+                        status=generated_status,
+                        priority=daily_item.priority,
+                        estimated_hours=daily_item.estimated_hours,
+                        due_date=daily_item.due_date,
+                        ai_generated=True,
+                        confidence=daily_item.confidence,
+                    )
+                    db.add(daily_task)
+                    db.flush()
+                    title_to_task.setdefault(daily_item.title, daily_task)
+                    for reference in daily_item.source_references:
+                        db.add(
+                            TaskSourceLink(
+                                task_id=daily_task.id,
+                                source_block_id=reference.block_id,
+                                relevance_score=daily_item.confidence,
+                            )
+                        )
+
+        for item in merged.task_candidates:
+            task = title_to_task.get(item.title)
+            if task is None:
+                continue
             for dependency in item.dependencies:
-                db.add(TaskDependency(task_id=title_to_task[item.title].id, depends_on_task_id=title_to_task[dependency].id))
+                prerequisite = title_to_task.get(dependency)
+                if prerequisite is not None:
+                    db.add(TaskDependency(task_id=task.id, depends_on_task_id=prerequisite.id))
         run = db.get(AnalysisRun, run_id)
         if run is None:
             raise ValueError("analysis run disappeared")

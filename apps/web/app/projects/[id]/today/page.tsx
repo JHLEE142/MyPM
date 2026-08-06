@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Dashboard, Project, Task } from "@pacepm/shared-types";
+import type { Dashboard, Project, ScheduleVersionSummary, Task } from "@pacepm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";
@@ -15,6 +15,7 @@ export default function TodayPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [versions, setVersions] = useState<ScheduleVersionSummary[]>([]);
   const [progress, setProgress] = useState<Record<number, number>>({});
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -25,10 +26,10 @@ export default function TodayPage() {
   const load = useCallback(async () => {
     setError("");
     try {
-      const [projectData, dashboardData, taskData] = await Promise.all([
-        api.projects.get(projectId), api.dashboard(projectId, isoToday()), api.tasks.list(projectId),
+      const [projectData, dashboardData, taskData, versionData] = await Promise.all([
+        api.projects.get(projectId), api.dashboard(projectId, isoToday()), api.tasks.list(projectId), api.schedule.versions(projectId),
       ]);
-      setProject(projectData); setDashboard(dashboardData); setTasks(taskData);
+      setProject(projectData); setDashboard(dashboardData); setTasks(taskData); setVersions(versionData);
       setProgress(Object.fromEntries(taskData.map((task) => [task.id, task.progress_percent])));
     } catch (e) { setError(errorMessage(e)); }
     finally { setLoading(false); }
@@ -65,6 +66,8 @@ export default function TodayPage() {
   if (!project || !dashboard) return <main className="page-shell py-10"><ErrorState message={error || "프로젝트를 찾을 수 없습니다."} onRetry={() => void load()} /></main>;
 
   const excess = dashboard.today.excess_hours;
+  const latestVersion = versions.at(-1);
+  const scheduleStale = Boolean(latestVersion && Date.parse(project.updated_at) > Date.parse(latestVersion.created_at));
   return (
     <main className="page-shell py-8 sm:py-10">
       <ProjectNav projectId={projectId} projectName={project.name} />
@@ -74,6 +77,7 @@ export default function TodayPage() {
       </div>
 
       {error && <div className="mb-4"><ErrorState message={error} /></div>}
+      {scheduleStale && <div className="warning-banner mb-5"><b>프로젝트 설정이 변경되었습니다 — 일정을 다시 생성해야 반영됩니다</b><Link href={`/projects/${projectId}/plan#schedule-planner`} className="ml-3 text-sm font-black underline">일정 생성 버튼으로 이동</Link></div>}
       {saved && <div className="success-box mb-4">{saved}</div>}
       <section className="mb-5 grid gap-3 sm:grid-cols-2">
         <div className="panel p-5"><p className="text-xs font-bold text-[#71807b]">오늘 유효 가용시간</p><p className="mt-2 text-2xl font-black">{formatHours(dashboard.today.effective_daily_capacity_hours)}</p><p className="mt-1 text-xs text-[#71807b]">원 가용시간 {formatHours(dashboard.today.raw_daily_capacity_hours)} · 버퍼 {Math.round(project.buffer_ratio * 100)}%</p></div>

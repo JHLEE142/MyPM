@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from .cli_providers import ClaudeAgentProvider, CodexCliProvider, ProviderError
 from .document_analyzer import AnalysisProvider, AnthropicProvider, MockProvider
 from .openai_provider import OpenAiApiProvider
-from .schemas import DocumentAnalysis, DraftChatResult, DraftFields
+from .schemas import DocumentAnalysis, DraftChatResult, DraftFields, HierarchicalTaskSet, ProjectAnalysis
 
 
 logger = logging.getLogger(__name__)
@@ -101,6 +101,15 @@ class AiRouter(AnalysisProvider):
             input_chars,
             self.chat_order,
             lambda provider: provider.chat_draft(fields, conversation),
+        )
+
+    def generate_hierarchical_tasks(self, analysis: ProjectAnalysis) -> HierarchicalTaskSet:
+        input_chars = len(analysis.model_dump_json())
+        return self._call(
+            "task_generation",
+            input_chars,
+            self.analysis_order,
+            lambda provider: provider.generate_hierarchical_tasks(analysis),
         )
 
     def _call(

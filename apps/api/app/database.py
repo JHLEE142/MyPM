@@ -35,6 +35,13 @@ def ensure_schema() -> None:
     }:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE projects ADD COLUMN owner VARCHAR(100)"))
+    if (
+        engine.dialect.name == "sqlite"
+        and "tasks" in schema.get_table_names()
+        and "cadence" not in {column["name"] for column in schema.get_columns("tasks")}
+    ):
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE tasks ADD COLUMN cadence VARCHAR(10)"))
     # Stage D 초기 스키마의 ai_usage.success NOT NULL 잔재 보정 — 쿼터 예약 행은 success=NULL로 삽입된다.
     # 사용량 계측 테이블이라 재생성으로 해소(데이터 손실 허용).
     if "ai_usage" in schema.get_table_names():

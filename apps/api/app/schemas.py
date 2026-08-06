@@ -224,6 +224,7 @@ class TaskOut(ORMModel):
     project_id: int
     milestone_id: int | None
     parent_task_id: int | None
+    cadence: Literal["monthly", "weekly", "daily"] | None
     title: str
     description: str | None
     status: TaskStatus

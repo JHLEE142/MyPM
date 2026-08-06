@@ -4,10 +4,12 @@ from datetime import date
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 
 class SourceReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source_id: int
     block_id: int
 
@@ -80,6 +82,68 @@ class GeneratedTaskSet(BaseModel):
         if invalid:
             raise ValueError(f"dependencies reference missing tasks: {sorted(invalid)}")
         return self
+
+
+class DailyTaskItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    description: str = ""
+    estimated_hours: float = Field(default=1.0, ge=0, le=10000)
+    priority: Literal["critical", "high", "medium", "low"] = "medium"
+    due_date: date | None = None
+    source_references: list[SourceReference] = Field(min_length=1)
+    confidence: float = Field(default=0.7, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def due_date_in_range(self):
+        if self.due_date is not None and not date(1970, 1, 1) <= self.due_date <= date(2100, 12, 31):
+            raise ValueError("due_date must be between 1970-01-01 and 2100-12-31")
+        return self
+
+
+class WeeklyTaskItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    description: str = ""
+    daily: list[DailyTaskItem] = Field(min_length=1, max_length=15)
+
+
+class MonthlyTaskItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    description: str = ""
+    target_month: str | None = Field(default=None, pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$")
+    weekly: list[WeeklyTaskItem] = Field(min_length=1, max_length=10)
+
+
+class HierarchicalTaskSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    monthly: list[MonthlyTaskItem] = Field(min_length=1, max_length=12)
+    _legacy_tasks: list[GeneratedTask] = PrivateAttr(default_factory=list)
+
+    @property
+    def tasks(self) -> list[GeneratedTask]:
+        """Stage D callers that only inspect flat generated leaves remain compatible."""
+        if self._legacy_tasks:
+            return self._legacy_tasks
+        return [
+            GeneratedTask(
+                title=daily.title,
+                description=daily.description,
+                priority=daily.priority,
+                estimated_hours=daily.estimated_hours,
+                due_date=daily.due_date,
+                source_references=daily.source_references,
+                confidence=daily.confidence,
+            )
+            for monthly in self.monthly
+            for weekly in monthly.weekly
+            for daily in weekly.daily
+        ]
 
 
 class DraftTaskCandidate(BaseModel):

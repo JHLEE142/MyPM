@@ -41,6 +41,42 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
     () => tasks.filter((task) => planStatuses.has(task.status) || ["on_hold", "blocked"].includes(task.status)),
     [tasks],
   );
+  const childrenByParent = useMemo(() => {
+    const result = new Map<number, Task[]>();
+    for (const task of listTasks) {
+      if (task.parent_task_id == null) continue;
+      result.set(task.parent_task_id, [...(result.get(task.parent_task_id) ?? []), task]);
+    }
+    return result;
+  }, [listTasks]);
+  const taskStats = useMemo(() => {
+    const result = new Map<number, { hours: number; completedHours: number; progress: number }>();
+    const visit = (task: Task): { hours: number; completedHours: number; progress: number } => {
+      const cached = result.get(task.id);
+      if (cached) return cached;
+      const children = childrenByParent.get(task.id) ?? [];
+      const stats = children.length
+        ? children.map(visit).reduce(
+            (sum, item) => ({ hours: sum.hours + item.hours, completedHours: sum.completedHours + item.completedHours, progress: 0 }),
+            { hours: 0, completedHours: 0, progress: 0 },
+          )
+        : { hours: task.estimated_hours, completedHours: task.estimated_hours * task.progress_percent / 100, progress: task.progress_percent };
+      stats.progress = stats.hours > 0 ? stats.completedHours / stats.hours * 100 : 0;
+      result.set(task.id, stats);
+      return stats;
+    };
+    for (const task of listTasks) visit(task);
+    return result;
+  }, [childrenByParent, listTasks]);
+  const leafListTasks = useMemo(() => listTasks.filter((task) => !childrenByParent.has(task.id)), [childrenByParent, listTasks]);
+  const monthlyRoots = useMemo(
+    () => listTasks.filter((task) => task.cadence === "monthly" && task.parent_task_id == null),
+    [listTasks],
+  );
+  const flatTasks = useMemo(
+    () => listTasks.filter((task) => task.cadence == null && task.parent_task_id == null),
+    [listTasks],
+  );
 
   const daily = useMemo(() => {
     const groups = new Map<string, typeof snapshot extends null ? never : NonNullable<typeof snapshot>["placements"]>();
@@ -59,11 +95,11 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [daily]);
   const monthly = useMemo(() => {
-    const dateTasks = tasks.filter((task) => planStatuses.has(task.status) && (task.due_date || task.planned_end_date)).sort((a, b) => String(a.due_date || a.planned_end_date).localeCompare(String(b.due_date || b.planned_end_date)));
+    const dateTasks = leafListTasks.filter((task) => planStatuses.has(task.status) && (task.due_date || task.planned_end_date)).sort((a, b) => String(a.due_date || a.planned_end_date).localeCompare(String(b.due_date || b.planned_end_date)));
     const groups = new Map<string, Task[]>();
     for (const task of dateTasks) { const date = task.due_date || task.planned_end_date || ""; const key = date.slice(0, 7); groups.set(key, [...(groups.get(key) ?? []), task]); }
     return [...groups.entries()];
-  }, [tasks]);
+  }, [leafListTasks]);
 
   async function generate() {
     setBusy(true); setError("");
@@ -110,7 +146,11 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
   }
 
   async function removeTask(task: Task) {
-    if (!window.confirm(`“${task.title}” 업무를 삭제할까요?`)) return;
+    const includesChildren = childrenByParent.has(task.id);
+    const message = includesChildren
+      ? `“${task.title}” 업무와 모든 하위 업무를 삭제할까요? 되돌릴 수 없습니다.`
+      : `“${task.title}” 업무를 삭제할까요?`;
+    if (!window.confirm(message)) return;
     setTaskBusyId(task.id); setError("");
     try { await api.tasks.remove(task.id); await onChange(); }
     catch (e) { setError(errorMessage(e)); }
@@ -137,7 +177,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
     <section id="schedule-planner" className="panel scroll-mt-5 overflow-hidden">
       <div className="flex flex-col gap-4 border-b border-[#e2e9e6] p-5 md:flex-row md:items-center md:justify-between">
         <div><p className="eyebrow">Schedule</p><h2 className="mt-1 text-xl font-black">실행 일정</h2><p className="mt-1 text-xs text-[#71807b]">목록과 기간별 그룹으로 확인합니다. 완료 업무와 고정 일정은 재계획에서 보호됩니다.</p></div>
-        <div className="flex flex-wrap gap-2"><button type="button" className="btn btn-secondary" disabled={busy || tasks.filter((task) => ["approved", "scheduled", "in_progress", "blocked"].includes(task.status)).length === 0} onClick={() => void generate()}>{schedule.version ? "일정 다시 생성" : "일정 생성"}</button><button type="button" className="btn btn-primary" disabled={busy || !schedule.version} onClick={() => setReplanOpen((value) => !value)}>재계획</button><button type="button" className="btn btn-ghost btn-sm self-center text-[#a33a36]" disabled={taskBusyId === "all" || tasks.length === 0} onClick={() => void removeAllTasks()}>{taskBusyId === "all" ? "삭제 중…" : "전체 삭제"}</button></div>
+        <div className="flex flex-wrap gap-2"><button type="button" className="btn btn-secondary" disabled={busy || leafListTasks.filter((task) => ["approved", "scheduled", "in_progress", "blocked"].includes(task.status)).length === 0} onClick={() => void generate()}>{schedule.version ? "일정 다시 생성" : "일정 생성"}</button><button type="button" className="btn btn-primary" disabled={busy || !schedule.version} onClick={() => setReplanOpen((value) => !value)}>재계획</button><button type="button" className="btn btn-ghost btn-sm self-center text-[#a33a36]" disabled={taskBusyId === "all" || tasks.length === 0} onClick={() => void removeAllTasks()}>{taskBusyId === "all" ? "삭제 중…" : "전체 삭제"}</button></div>
       </div>
 
       <form onSubmit={(event) => void addTask(event)} className="grid gap-2 border-b border-[#e2e9e6] bg-[#f7faf8] p-4 sm:grid-cols-[minmax(0,1fr)_86px_96px_150px_auto]">
@@ -150,18 +190,61 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
 
       {listTasks.length > 0 && (
         <div className="border-b border-[#e2e9e6]">
-          <div className="flex items-center justify-between px-4 pt-4"><h3 className="text-sm font-black">업무 목록 <span className="font-bold text-[#71807b]">({listTasks.filter((task) => task.status === "completed").length}/{listTasks.length} 완료)</span></h3></div>
-          <div className="grid gap-1.5 p-4 sm:grid-cols-2">
-            {listTasks.map((task) => (
-              <div key={task.id} className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 ${task.status === "completed" ? "border-[#dbe8e2] bg-[#f2f8f5]" : "border-[#e4ebe8] bg-white"}`}>
-                <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />
-                <div className="min-w-0 flex-1">
-                  <p className={`truncate text-sm font-bold ${task.status === "completed" ? "text-[#6e837b] line-through" : ""}`}>{task.title}</p>
-                  <p className="text-[11px] text-[#71807b]">{formatHours(task.estimated_hours)} · {Math.round(task.progress_percent)}%{task.due_date ? ` · 기한 ${formatDate(task.due_date)}` : ""}{task.status !== "completed" && !["approved", "scheduled"].includes(task.status) ? ` · ${taskStatusLabel[task.status] ?? task.status}` : ""}</p>
+          <div className="flex items-center justify-between px-4 pt-4"><h3 className="text-sm font-black">업무 목록 <span className="font-bold text-[#71807b]">({leafListTasks.filter((task) => task.status === "completed").length}/{leafListTasks.length} 완료)</span></h3></div>
+          <div className="space-y-3 p-4">
+            {monthlyRoots.map((monthlyTask) => {
+              const monthlyStats = taskStats.get(monthlyTask.id) ?? { hours: monthlyTask.estimated_hours, progress: 0, completedHours: 0 };
+              const weeklyTasks = childrenByParent.get(monthlyTask.id) ?? [];
+              return (
+                <div key={monthlyTask.id} className="rounded-xl border border-[#dfe7e4] bg-white p-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-base text-[#166a58]" aria-hidden>●</span>
+                    <div className="min-w-0 flex-1"><p className="text-sm font-black">{monthlyTask.title}</p><p className="text-[11px] text-[#71807b]">파생 진도 {Math.round(monthlyStats.progress)}% · 총 {formatHours(monthlyStats.hours)}</p></div>
+                    <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === monthlyTask.id} aria-label={`${monthlyTask.title} 하위 포함 삭제`} onClick={() => void removeTask(monthlyTask)}>하위 포함 삭제</button>
+                  </div>
+                  <div className="mt-2 space-y-2 pl-5">
+                    {weeklyTasks.map((weeklyTask) => {
+                      const weeklyStats = taskStats.get(weeklyTask.id) ?? { hours: weeklyTask.estimated_hours, progress: 0, completedHours: 0 };
+                      return (
+                        <div key={weeklyTask.id} className="rounded-lg bg-[#f7faf8] p-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-[#3b7c6c]" aria-hidden>◦</span>
+                            <div className="min-w-0 flex-1"><p className="text-sm font-bold">{weeklyTask.title}</p><p className="text-[11px] text-[#71807b]">{Math.round(weeklyStats.progress)}% · {formatHours(weeklyStats.hours)}</p></div>
+                            <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === weeklyTask.id} aria-label={`${weeklyTask.title} 하위 포함 삭제`} onClick={() => void removeTask(weeklyTask)}>하위 포함 삭제</button>
+                          </div>
+                          <div className="mt-1.5 space-y-1 pl-5">
+                            {(childrenByParent.get(weeklyTask.id) ?? []).map((dailyTask) => (
+                              <div key={dailyTask.id} className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${dailyTask.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}`}>
+                                <span className="text-[#71807b]" aria-hidden>·</span>
+                                <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={dailyTask.status === "completed"} disabled={taskBusyId === dailyTask.id} aria-label={`${dailyTask.title} 완료 체크`} onChange={(event) => void toggleComplete(dailyTask, event.target.checked)} />
+                                <p className={`min-w-0 flex-1 truncate text-sm ${dailyTask.status === "completed" ? "text-[#6e837b] line-through" : "font-medium"}`}>{dailyTask.title}</p>
+                                <span className="shrink-0 text-[11px] font-bold text-[#71807b]">{formatHours(dailyTask.estimated_hours)}</span>
+                                <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === dailyTask.id} aria-label={`${dailyTask.title} 삭제`} onClick={() => void removeTask(dailyTask)}>삭제</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === task.id} aria-label={`${task.title} 삭제`} onClick={() => void removeTask(task)}>삭제</button>
+              );
+            })}
+            {flatTasks.length > 0 && (
+              <div className="rounded-xl border border-[#dfe7e4] bg-[#f8faf9] p-3">
+                <h4 className="mb-2 text-xs font-black text-[#5e706a]">기타 업무</h4>
+                <div className="space-y-1">
+                  {flatTasks.map((task) => (
+                    <div key={task.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${task.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}`}>
+                      <span className="text-[#71807b]" aria-hidden>·</span>
+                      <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />
+                      <div className="min-w-0 flex-1"><p className={`truncate text-sm font-bold ${task.status === "completed" ? "text-[#6e837b] line-through" : ""}`}>{task.title}</p><p className="text-[11px] text-[#71807b]">{formatHours(task.estimated_hours)} · {Math.round(task.progress_percent)}%{task.due_date ? ` · 기한 ${formatDate(task.due_date)}` : ""}{task.status !== "completed" && !["approved", "scheduled"].includes(task.status) ? ` · ${taskStatusLabel[task.status] ?? task.status}` : ""}</p></div>
+                      <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === task.id} aria-label={`${task.title} 삭제`} onClick={() => void removeTask(task)}>삭제</button>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}

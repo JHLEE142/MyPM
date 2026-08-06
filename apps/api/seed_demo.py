@@ -164,7 +164,7 @@ def _create_demo_project(db: Session, spec: dict) -> Project:
             db.add(TaskDependency(task_id=tasks[index].id, depends_on_task_id=tasks[dependency_index].id))
     db.commit()
 
-    generate_schedule(db, project, "데모 초기 일정")
+    generate_schedule(db, project, "데모 초기 일정", as_of=project.start_date)
     for index, (status, progress, actual_hours, actual_end_date) in spec["states"].items():
         task = tasks[index]
         task.status = status

@@ -8,7 +8,7 @@ import httpx
 
 from .cli_providers import ProviderError, parse_structured_json
 from .document_analyzer import AnalysisProvider, build_document_prompt, build_draft_prompt
-from .schemas import DocumentAnalysis, DraftChatResult, DraftFields
+from .schemas import DocumentAnalysis, DraftChatResult, DraftFields, HierarchicalTaskSet, ProjectAnalysis
 
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,14 @@ class OpenAiApiProvider(AnalysisProvider):
 
     def chat_draft(self, fields: DraftFields, conversation: list[dict[str, str]]) -> DraftChatResult:
         return parse_structured_json(self._complete(build_draft_prompt(fields, conversation)), DraftChatResult)
+
+    def generate_hierarchical_tasks(self, analysis: ProjectAnalysis) -> HierarchicalTaskSet:
+        from .task_generator import build_hierarchical_task_prompt
+
+        return parse_structured_json(
+            self._complete(build_hierarchical_task_prompt(analysis)),
+            HierarchicalTaskSet,
+        )
 
 
 MAX_CAPTION_IMAGE_BYTES = 10 * 1024 * 1024
