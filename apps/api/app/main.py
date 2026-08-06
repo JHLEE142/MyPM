@@ -3,9 +3,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import os
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+# 프로세스 env가 우선, .env는 보충 (apps/api/.env)
+load_dotenv()
 
 from .api.routes import router
 from .database import ensure_schema

@@ -98,3 +98,46 @@ def test_delete_task_with_dependent_removes_dependency_edge(client):
     assert client.delete(f"/api/tasks/{a['id']}").status_code == 204
     remaining = client.get(f"/api/tasks/{b['id']}").json()
     assert remaining["dependencies"] == []
+
+
+def test_openai_provider_parses_structured_response(monkeypatch):
+    import httpx as httpx_module
+
+    from ai.openai_provider import OpenAiApiProvider
+    from ai.schemas import DraftFields
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+
+        @staticmethod
+        def json():
+            return {"choices": [{"message": {"content": '{"reply": "안녕하세요", "completeness_percent": 0}'}}]}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx_module, "post", fake_post)
+    provider = OpenAiApiProvider(api_key="test-key", model="gpt-4o-mini")
+    result = provider.chat_draft(DraftFields(), [{"role": "user", "content": "안녕"}])
+    assert result.reply == "안녕하세요"
+    assert captured["headers"]["Authorization"] == "Bearer test-key"
+    assert captured["json"]["model"] == "gpt-4o-mini"
+    assert captured["json"]["response_format"] == {"type": "json_object"}
+
+
+def test_router_includes_openai_when_key_present(monkeypatch):
+    from ai.router import AiRouter
+
+    monkeypatch.delenv("AI_ROUTER_ORDER", raising=False)
+    monkeypatch.delenv("AI_ANALYSIS_ROUTER_ORDER", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    router = AiRouter()
+    assert "openai_api" in router.chat_order
+    assert "openai_api" in router.analysis_order
+    provider = router._providers["openai_api"]
+    assert provider.available is True

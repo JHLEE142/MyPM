@@ -290,6 +290,7 @@ def test_default_router_resolution_for_key_and_operation(monkeypatch, has_key, o
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     else:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr("ai.cli_providers.shutil.which", lambda name: f"/fake/{name}")
     monkeypatch.setattr("ai.router.AnthropicProvider", lambda: FakeProvider("anthropic_api"))
     router = AiRouter()

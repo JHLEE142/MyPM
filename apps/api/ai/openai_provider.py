@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any
+
+import httpx
+
+from .cli_providers import ProviderError, parse_structured_json
+from .document_analyzer import AnalysisProvider, build_document_prompt, build_draft_prompt
+from .schemas import DocumentAnalysis, DraftChatResult, DraftFields
+
+
+logger = logging.getLogger(__name__)
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+
+class OpenAiApiProvider(AnalysisProvider):
+    """OPENAI_API_KEY 기반 provider. 구조화 출력은 json_object 강제 + 기존 파서/Pydantic 재검증."""
+
+    name = "openai_api"
+
+    def __init__(self, api_key: str | None = None, model: str | None = None):
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
+        self.model = model or os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
+
+    @property
+    def available(self) -> bool:
+        return bool(self.api_key)
+
+    def _complete(self, prompt: str) -> str:
+        if not self.api_key:
+            raise ProviderError("OPENAI_API_KEY is not configured")
+        try:
+            response = httpx.post(
+                OPENAI_API_URL,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {"type": "json_object"},
+                    "max_tokens": 4096,
+                },
+                timeout=120,
+            )
+        except httpx.HTTPError as exc:
+            raise ProviderError("OpenAI API request failed") from exc
+        if response.status_code != 200:
+            logger.warning("openai_api status=%d body_len=%d", response.status_code, len(response.text))
+            raise ProviderError(f"OpenAI API returned status {response.status_code}")
+        try:
+            content = response.json()["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, ValueError) as exc:
+            raise ProviderError("OpenAI API response shape was unexpected") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise ProviderError("OpenAI API returned empty content")
+        return content
+
+    def analyze_document(self, source_id: int, blocks: list[dict[str, Any]]) -> DocumentAnalysis:
+        return parse_structured_json(self._complete(build_document_prompt(source_id, blocks)), DocumentAnalysis)
+
+    def chat_draft(self, fields: DraftFields, conversation: list[dict[str, str]]) -> DraftChatResult:
+        return parse_structured_json(self._complete(build_draft_prompt(fields, conversation)), DraftChatResult)
