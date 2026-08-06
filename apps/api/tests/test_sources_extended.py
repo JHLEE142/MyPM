@@ -121,6 +121,28 @@ def test_analysis_auto_approve_when_gate_disabled(client, project_payload, monke
     assert status["status"] == "completed"
     tasks = client.get(f"/api/projects/{project['id']}/tasks").json()
     ai_tasks = [task for task in tasks if task["ai_generated"]]
-    assert ai_tasks and all(task["status"] == "approved" for task in ai_tasks)
+    # 자동 승인 + 자동 일정 배치까지 이어지므로 리프는 scheduled, 상위는 approved가 된다.
+    assert ai_tasks and all(task["status"] in {"approved", "scheduled"} for task in ai_tasks)
     sources = client.get(f"/api/projects/{project['id']}/sources").json()
     assert all(item["analysis_status"] == "completed" for item in sources)
+
+
+def test_auto_approve_analysis_also_generates_schedule(client, project_payload, monkeypatch):
+    monkeypatch.delenv("AI_REVIEW_GATE", raising=False)
+    project = client.post("/api/projects", json=project_payload).json()
+    client.post(
+        f"/api/projects/{project['id']}/sources",
+        json={"file_name": "회의.md", "text": "# 업무\n- 기획 정리 2시간\n- 개발 착수 3시간"},
+    )
+    assert client.post(f"/api/projects/{project['id']}/analysis").status_code == 202
+    schedule = client.get(f"/api/projects/{project['id']}/schedule").json()
+    assert schedule["version"] == 1
+    assert schedule["reason"] == "AI 분석 자동 배치"
+    placements = schedule["schedule_snapshot"]["placements"]
+    assert placements
+    leaf_ids = {
+        task["id"]
+        for task in client.get(f"/api/projects/{project['id']}/tasks").json()
+        if task["cadence"] in ("daily", None)
+    }
+    assert {item["task_id"] for item in placements} <= leaf_ids

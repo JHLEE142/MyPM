@@ -67,7 +67,8 @@ def test_mock_analysis_creates_approved_three_level_hierarchy(client, monkeypatc
     assert weekly[0]["parent_task_id"] == monthly[0]["id"]
     assert {task["parent_task_id"] for task in daily} == {weekly[0]["id"]}
     assert monthly[0]["estimated_hours"] == weekly[0]["estimated_hours"] == 5
-    assert all(task["status"] == "approved" and task["ai_generated"] for task in tasks)
+    # 자동 승인 후 자동 일정 배치까지 이어지므로 배치된 리프는 scheduled가 될 수 있다.
+    assert all(task["status"] in {"approved", "scheduled"} and task["ai_generated"] for task in tasks)
     assert len(monthly[0]["source_links"]) == len(weekly[0]["source_links"]) == 1
     assert all(task["source_links"] for task in daily)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -40,6 +41,7 @@ SCHEDULABLE_STATUSES = {"approved", "scheduled", "in_progress", "blocked"}
 APPROVED_TASK_STATUSES = {"approved", "scheduled", "in_progress", "completed", "on_hold", "blocked"}
 ANALYSIS_SEMAPHORE = threading.BoundedSemaphore(2)
 MAX_ANALYSIS_CHARACTERS = 200_000
+logger = logging.getLogger(__name__)
 
 
 def project_or_none(db: Session, project_id: int) -> Project | None:
@@ -615,6 +617,16 @@ def run_analysis(run_id: int, project_id: int) -> None:
         for source in sources:
             source.analysis_status = "review_required" if review_gate_enabled() else "completed"
         db.commit()
+        # 자동 승인 모드에서는 분석 → 일정 생성까지 자동으로 이어져 오늘 화면에 바로 반영된다.
+        # 일정 생성 실패는 분석 결과를 되돌리지 않는다(수동 생성으로 복구 가능).
+        if not review_gate_enabled():
+            try:
+                project = db.get(Project, project_id)
+                if project is not None:
+                    generate_schedule(db, project, "AI 분석 자동 배치")
+            except Exception:
+                db.rollback()
+                logger.exception("post-analysis automatic schedule generation failed")
     except Exception as exc:
         db.rollback()
         run = db.get(AnalysisRun, run_id)
