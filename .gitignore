@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+pacepm.db
+*.db
+apps/api/storage/
+.env
+
+# Node
+node_modules/
+.next/
+out/
+
+# misc
+.DS_Store
