@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #192522;
+  --muted: #687874;
+  --line: #dce5e1;
+  --soft: #f4f7f5;
+  --paper: #fbfcfb;
+  --accent: #166a58;
+  --accent-dark: #0f5144;
+  --accent-soft: #e5f3ee;
+  --warning: #a85d09;
+  --danger: #b53636;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 92% 3%, rgba(196, 224, 212, .38), transparent 25rem),
+    var(--paper);
+  color: var(--ink);
+  font-family: Arial, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+}
+button, input, textarea, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 3px solid rgba(22, 106, 88, .22);
+  outline-offset: 2px;
+}
+
+.page-shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+.panel { border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.94); box-shadow: 0 10px 36px rgba(31,57,50,.055); }
+.card { border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.eyebrow { color: var(--accent); font-size: .72rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.muted { color: var(--muted); }
+.field { width: 100%; border: 1px solid #cbd8d3; border-radius: 10px; background: #fff; padding: .7rem .8rem; color: var(--ink); transition: border-color .16s, box-shadow .16s; }
+.field:hover { border-color: #a9bdb5; }
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(22,106,88,.1); outline: none; }
+.label { display: block; margin-bottom: .4rem; color: #40514c; font-size: .82rem; font-weight: 700; }
+.btn { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: .45rem; border: 1px solid transparent; border-radius: 10px; padding: .55rem .9rem; font-size: .88rem; font-weight: 750; transition: transform .14s, background .14s, border-color .14s; cursor: pointer; }
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:disabled { cursor: not-allowed; opacity: .55; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-dark); }
+.btn-secondary { border-color: #cdd9d5; background: white; color: #31433e; }
+.btn-secondary:hover:not(:disabled) { background: var(--soft); }
+.btn-danger { border-color: #f0cdcd; background: #fff6f6; color: var(--danger); }
+.btn-ghost { background: transparent; color: var(--muted); }
+.btn-sm { min-height: 34px; padding: .4rem .68rem; font-size: .8rem; }
+.badge { display: inline-flex; align-items: center; gap: .3rem; border-radius: 999px; padding: .3rem .55rem; font-size: .72rem; font-weight: 800; white-space: nowrap; }
+.badge-success { background: #e1f4eb; color: #176344; }
+.badge-warning { background: #fff0d7; color: #8a510b; }
+.badge-danger { background: #fee8e7; color: #9f2f2f; }
+.badge-critical { background: #732e35; color: white; }
+.badge-info { background: #e5effb; color: #285b8c; }
+.badge-neutral { background: #edf1ef; color: #53635e; }
+.progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: #e7edea; }
+.progress-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #1e7965, #53a88d); }
+.empty { display: grid; min-height: 190px; place-items: center; padding: 2rem; text-align: center; color: var(--muted); }
+.error-box { border: 1px solid #f0c9c7; border-radius: 12px; background: #fff4f3; padding: .85rem 1rem; color: #962d2d; font-size: .88rem; }
+.success-box { border: 1px solid #bfe0d2; border-radius: 12px; background: #eef9f4; padding: .85rem 1rem; color: #1e684e; font-size: .88rem; }
+.warning-banner { border: 1px solid #efcf95; border-radius: 14px; background: #fff7e8; padding: 1rem 1.1rem; color: #75430a; }
+.skeleton { border-radius: 10px; background: linear-gradient(90deg, #edf1ef 25%, #f7f9f8 50%, #edf1ef 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+@media (max-width: 720px) {
+  .page-shell { width: min(100% - 20px, 1180px); }
+}
