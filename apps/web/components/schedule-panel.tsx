@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Project, ProjectFact, ReplanRequest, ScheduleComparison, ScheduleVersion, ScheduleVersionSummary, Task } from "@pacepm/shared-types";
+import type { Project, ProjectFact, ReplanRequest, ScheduleComparison, ScheduleVersion, ScheduleVersionSummary, Task, TaskPriority } from "@pacepm/shared-types";
 import { api, errorMessage } from "@/lib/api";
-import { formatDate, formatFullDate, formatHours, taskStatusLabel, taskStatusTone } from "@/lib/format";
+import { formatDate, formatFullDate, formatHours, isoToday, priorityLabel, taskStatusLabel, taskStatusTone } from "@/lib/format";
 import { EmptyState, ErrorState } from "./feedback";
 
 type View = "daily" | "weekly" | "monthly";
@@ -30,8 +30,17 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
   const [comparison, setComparison] = useState<ScheduleComparison | null>(null);
   const [fromVersion, setFromVersion] = useState<number>(versions.at(-2)?.version ?? versions[0]?.version ?? 1);
   const [toVersion, setToVersion] = useState<number>(versions.at(-1)?.version ?? 1);
+  const [newTitle, setNewTitle] = useState("");
+  const [newHours, setNewHours] = useState(1);
+  const [newPriority, setNewPriority] = useState<TaskPriority>("medium");
+  const [newDueDate, setNewDueDate] = useState("");
+  const [taskBusyId, setTaskBusyId] = useState<number | "new" | "all" | null>(null);
   const snapshot = schedule.schedule_snapshot;
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
+  const listTasks = useMemo(
+    () => tasks.filter((task) => planStatuses.has(task.status) || ["on_hold", "blocked"].includes(task.status)),
+    [tasks],
+  );
 
   const daily = useMemo(() => {
     const groups = new Map<string, typeof snapshot extends null ? never : NonNullable<typeof snapshot>["placements"]>();
@@ -73,6 +82,49 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
     finally { setBusy(false); }
   }
 
+  async function addTask(event: React.FormEvent) {
+    event.preventDefault();
+    if (!newTitle.trim()) return;
+    setTaskBusyId("new"); setError("");
+    try {
+      await api.tasks.create(project.id, {
+        title: newTitle.trim(),
+        estimated_hours: newHours,
+        priority: newPriority,
+        due_date: newDueDate || null,
+      });
+      setNewTitle(""); setNewHours(1); setNewPriority("medium"); setNewDueDate("");
+      await onChange();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setTaskBusyId(null); }
+  }
+
+  async function toggleComplete(task: Task, checked: boolean) {
+    setTaskBusyId(task.id); setError("");
+    try {
+      if (checked) await api.tasks.complete(task.id, { completed_date: isoToday() });
+      else await api.tasks.reopen(task.id);
+      await onChange();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setTaskBusyId(null); }
+  }
+
+  async function removeTask(task: Task) {
+    if (!window.confirm(`“${task.title}” 업무를 삭제할까요?`)) return;
+    setTaskBusyId(task.id); setError("");
+    try { await api.tasks.remove(task.id); await onChange(); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setTaskBusyId(null); }
+  }
+
+  async function removeAllTasks() {
+    if (!window.confirm(`이 프로젝트의 업무 ${tasks.length}개를 전부 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    setTaskBusyId("all"); setError("");
+    try { await api.tasks.removeAll(project.id); await onChange(); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setTaskBusyId(null); }
+  }
+
   async function compare() {
     if (fromVersion === toVersion) { setError("서로 다른 버전을 선택해 주세요."); return; }
     setBusy(true); setError("");
@@ -85,8 +137,34 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
     <section id="schedule-planner" className="panel scroll-mt-5 overflow-hidden">
       <div className="flex flex-col gap-4 border-b border-[#e2e9e6] p-5 md:flex-row md:items-center md:justify-between">
         <div><p className="eyebrow">Schedule</p><h2 className="mt-1 text-xl font-black">실행 일정</h2><p className="mt-1 text-xs text-[#71807b]">목록과 기간별 그룹으로 확인합니다. 완료 업무와 고정 일정은 재계획에서 보호됩니다.</p></div>
-        <div className="flex flex-wrap gap-2"><button type="button" className="btn btn-secondary" disabled={busy || tasks.filter((task) => ["approved", "scheduled", "in_progress", "blocked"].includes(task.status)).length === 0} onClick={() => void generate()}>{schedule.version ? "일정 다시 생성" : "일정 생성"}</button><button type="button" className="btn btn-primary" disabled={busy || !schedule.version} onClick={() => setReplanOpen((value) => !value)}>재계획</button></div>
+        <div className="flex flex-wrap gap-2"><button type="button" className="btn btn-secondary" disabled={busy || tasks.filter((task) => ["approved", "scheduled", "in_progress", "blocked"].includes(task.status)).length === 0} onClick={() => void generate()}>{schedule.version ? "일정 다시 생성" : "일정 생성"}</button><button type="button" className="btn btn-primary" disabled={busy || !schedule.version} onClick={() => setReplanOpen((value) => !value)}>재계획</button><button type="button" className="btn btn-ghost btn-sm self-center text-[#a33a36]" disabled={taskBusyId === "all" || tasks.length === 0} onClick={() => void removeAllTasks()}>{taskBusyId === "all" ? "삭제 중…" : "전체 삭제"}</button></div>
       </div>
+
+      <form onSubmit={(event) => void addTask(event)} className="grid gap-2 border-b border-[#e2e9e6] bg-[#f7faf8] p-4 sm:grid-cols-[minmax(0,1fr)_86px_96px_150px_auto]">
+        <input className="field" value={newTitle} maxLength={500} placeholder="새 업무 제목을 입력하고 Enter" aria-label="새 업무 제목" onChange={(event) => setNewTitle(event.target.value)} />
+        <div className="relative"><input className="field pr-8" type="number" min="0" max="10000" step="0.5" value={newHours} aria-label="예상 공수" onChange={(event) => setNewHours(Number(event.target.value))} /><span className="absolute right-3 top-3 text-xs text-[#71807b]">h</span></div>
+        <select className="field" value={newPriority} aria-label="우선순위" onChange={(event) => setNewPriority(event.target.value as TaskPriority)}>{(["critical", "high", "medium", "low"] as TaskPriority[]).map((value) => <option key={value} value={value}>{priorityLabel[value]}</option>)}</select>
+        <input className="field" type="date" value={newDueDate} aria-label="기한 (선택)" onChange={(event) => setNewDueDate(event.target.value)} />
+        <button className="btn btn-primary" disabled={taskBusyId === "new" || !newTitle.trim()}>{taskBusyId === "new" ? "추가 중…" : "＋ 추가"}</button>
+      </form>
+
+      {listTasks.length > 0 && (
+        <div className="border-b border-[#e2e9e6]">
+          <div className="flex items-center justify-between px-4 pt-4"><h3 className="text-sm font-black">업무 목록 <span className="font-bold text-[#71807b]">({listTasks.filter((task) => task.status === "completed").length}/{listTasks.length} 완료)</span></h3></div>
+          <div className="grid gap-1.5 p-4 sm:grid-cols-2">
+            {listTasks.map((task) => (
+              <div key={task.id} className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 ${task.status === "completed" ? "border-[#dbe8e2] bg-[#f2f8f5]" : "border-[#e4ebe8] bg-white"}`}>
+                <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />
+                <div className="min-w-0 flex-1">
+                  <p className={`truncate text-sm font-bold ${task.status === "completed" ? "text-[#6e837b] line-through" : ""}`}>{task.title}</p>
+                  <p className="text-[11px] text-[#71807b]">{formatHours(task.estimated_hours)} · {Math.round(task.progress_percent)}%{task.due_date ? ` · 기한 ${formatDate(task.due_date)}` : ""}{task.status !== "completed" && !["approved", "scheduled"].includes(task.status) ? ` · ${taskStatusLabel[task.status] ?? task.status}` : ""}</p>
+                </div>
+                <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === task.id} aria-label={`${task.title} 삭제`} onClick={() => void removeTask(task)}>삭제</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {error && <div className="p-4 pb-0"><ErrorState message={error} /></div>}
       {snapshot?.infeasible && <div className="m-4 mb-0 warning-banner"><b>⚠ 현재 조건으로 목표일 준수 불가</b><p className="mt-1 text-sm">배치하지 못한 업무 {snapshot.unscheduled.length}개, 남은 공수 {formatHours(snapshot.unscheduled.reduce((sum, item) => sum + item.remaining_hours, 0))}. 재계획에서 가용시간 또는 목표일 조정을 선택하세요.</p></div>}
       {!!snapshot?.deferred?.length && <div className="m-4 mb-0 rounded-xl border border-[#d9e3df] bg-[#f7faf8] p-4"><b>이월 업무</b><ul className="mt-2 space-y-1 text-sm">{snapshot.deferred.map((item) => <li key={item.task_id}>• {taskMap.get(item.task_id)?.title ?? `업무 #${item.task_id}`} — 낮은 우선순위·미시작 업무</li>)}</ul></div>}
@@ -99,7 +177,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
 
       {!snapshot || snapshot.placements.length === 0 ? <EmptyState title="생성된 일정이 없습니다" description="승인된 업무를 추가한 뒤 일정 생성 버튼을 누르세요." /> : (
         <div className="p-4 sm:p-5">
-          {view === "daily" && <div className="space-y-4">{daily.map(([date, placements]) => <div key={date} className="grid gap-3 border-b border-[#e7edea] pb-4 md:grid-cols-[150px_1fr]"><div><p className="font-black">{formatFullDate(date)}</p><p className="mt-1 text-xs text-[#71807b]">총 {formatHours(placements.reduce((sum, item) => sum + item.hours, 0))}</p></div><div className="space-y-2">{placements.map((item, index) => { const task = taskMap.get(item.task_id); return <div key={`${item.task_id}-${index}`} className="flex items-center justify-between gap-3 rounded-lg bg-[#f5f8f6] px-3 py-2"><div className="min-w-0"><p className="truncate text-sm font-bold">{task?.title ?? `업무 #${item.task_id}`}</p><span className={`badge mt-1 ${taskStatusTone(task?.status ?? "approved")}`}>{taskStatusLabel[task?.status ?? "approved"] ?? task?.status}</span></div><b className="text-xs">{formatHours(item.hours)}</b></div>; })}</div></div>)}</div>}
+          {view === "daily" && <div className="space-y-4">{daily.map(([date, placements]) => <div key={date} className="grid gap-3 border-b border-[#e7edea] pb-4 md:grid-cols-[150px_1fr]"><div><p className="font-black">{formatFullDate(date)}</p><p className="mt-1 text-xs text-[#71807b]">총 {formatHours(placements.reduce((sum, item) => sum + item.hours, 0))}</p></div><div className="space-y-2">{placements.map((item, index) => { const task = taskMap.get(item.task_id); return <div key={`${item.task_id}-${index}`} className="flex items-center justify-between gap-3 rounded-lg bg-[#f5f8f6] px-3 py-2"><div className="flex min-w-0 items-center gap-2.5">{task && <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />}<div className="min-w-0"><p className={`truncate text-sm font-bold ${task?.status === "completed" ? "text-[#6e837b] line-through" : ""}`}>{task?.title ?? `업무 #${item.task_id}`}</p><span className={`badge mt-1 ${taskStatusTone(task?.status ?? "approved")}`}>{taskStatusLabel[task?.status ?? "approved"] ?? task?.status}</span></div></div><div className="flex shrink-0 items-center gap-2"><b className="text-xs">{formatHours(item.hours)}</b>{task && <button type="button" className="text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === task.id} aria-label={`${task.title} 삭제`} onClick={() => void removeTask(task)}>삭제</button>}</div></div>; })}</div></div>)}</div>}
           {view === "weekly" && <div className="space-y-4">{weekly.map(([week, dates]) => { const ids = [...new Set(dates.flatMap(([, items]) => items.map((item) => item.task_id)))]; const completed = ids.filter((id) => taskMap.get(id)?.status === "completed").length; return <article key={week} className="card p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-black">{formatDate(week)} 시작 주</h3><p className="mt-1 text-xs text-[#71807b]">업무 {ids.length}개 · {dates.reduce((sum, [, items]) => sum + items.reduce((value, item) => value + item.hours, 0), 0).toFixed(1)}시간</p></div><span className="badge badge-success">완료율 {ids.length ? Math.round(completed / ids.length * 100) : 0}%</span></div><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{dates.map(([date, items]) => <div key={date} className="rounded-lg bg-[#f4f7f5] p-3"><p className="text-xs font-black">{formatDate(date)}</p><div className="mt-2 space-y-1">{items.map((item) => <p key={`${item.task_id}-${date}`} className="truncate text-[11px] text-[#5f706a]">• {taskMap.get(item.task_id)?.title ?? `업무 #${item.task_id}`}</p>)}</div></div>)}</div></article>; })}</div>}
           {view === "monthly" && <div className="space-y-5">{facts.filter((fact) => fact.fact_type === "deadline" && fact.review_status === "approved").length > 0 && <div className="warning-banner"><p className="text-xs font-black uppercase tracking-[.08em]">목표 · 마일스톤</p><ul className="mt-2 space-y-1 text-sm">{facts.filter((fact) => fact.fact_type === "deadline" && fact.review_status === "approved").map((fact) => <li key={fact.id}>• {fact.content}</li>)}</ul></div>}{monthly.length === 0 ? <EmptyState title="기한이 설정된 업무가 없습니다" description="업무 수정에서 기한을 설정하면 월간 목록에 표시됩니다." /> : monthly.map(([month, monthTasks]) => <article key={month}><h3 className="mb-2 text-lg font-black">{month.replace("-", ".")} 월간 일정</h3><div className="divide-y divide-[#e6ece9] rounded-xl border border-[#dfe7e4]">{monthTasks.map((task) => <div key={task.id} className="flex items-center justify-between gap-3 p-3"><div><p className="text-sm font-bold">{task.title}</p><p className="mt-1 text-xs text-[#71807b]">{task.milestone_id ? `마일스톤 #${task.milestone_id}` : "프로젝트 업무"}</p></div><div className="text-right"><b className="text-xs">{formatDate(task.due_date || task.planned_end_date)}</b><span className={`badge ml-2 ${taskStatusTone(task.status)}`}>{taskStatusLabel[task.status] ?? task.status}</span></div></div>)}</div></article>)}</div>}
         </div>

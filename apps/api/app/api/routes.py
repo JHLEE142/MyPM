@@ -916,6 +916,24 @@ def block_task(task_id: int, payload: TaskBlock, db: Session = Depends(get_db)):
     return _task(db, task.id)
 
 
+@router.delete("/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int, db: Session = Depends(get_db)):
+    task = _task(db, task_id)
+    db.delete(task)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.delete("/projects/{project_id}/tasks")
+def delete_all_tasks(project_id: int, db: Session = Depends(get_db)):
+    _project(db, project_id)
+    tasks = list(db.scalars(select(Task).where(Task.project_id == project_id)))
+    for task in tasks:
+        db.delete(task)
+    db.commit()
+    return {"deleted": len(tasks)}
+
+
 @router.post("/projects/{project_id}/schedule/generate", status_code=201)
 def schedule_generate(project_id: int, payload: ScheduleGenerate | None = None, db: Session = Depends(get_db)):
     project = _project(db, project_id)

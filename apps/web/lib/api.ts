@@ -118,6 +118,9 @@ export const api = {
       request<Task>(`/api/tasks/${taskId}/block`, { method: "POST", body: json({ reason }) }),
     reopen: (taskId: number) =>
       request<Task>(`/api/tasks/${taskId}/reopen`, { method: "POST", body: json({}) }),
+    remove: (taskId: number) => request<void>(`/api/tasks/${taskId}`, { method: "DELETE" }),
+    removeAll: (projectId: number) =>
+      request<{ deleted: number }>(`/api/projects/${projectId}/tasks`, { method: "DELETE" }),
   },
   schedule: {
     get: (projectId: number) => request<ScheduleVersion>(`/api/projects/${projectId}/schedule`),

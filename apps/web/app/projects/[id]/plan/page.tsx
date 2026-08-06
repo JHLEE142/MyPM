@@ -2,13 +2,11 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AnalysisReview, Dashboard, Project, ScheduleVersion, ScheduleVersionSummary, SourceDocument, Task } from "@pacepm/shared-types";
+import type { AnalysisReview, Dashboard, Project, ScheduleVersion, ScheduleVersionSummary, Task } from "@pacepm/shared-types";
 import { ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { ProgressChart } from "@/components/progress-chart";
-import { ReviewPanel } from "@/components/review-panel";
 import { SchedulePanel } from "@/components/schedule-panel";
-import { TaskManager } from "@/components/task-manager";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatHours, isoToday, paceLabel, paceTone } from "@/lib/format";
 
@@ -17,7 +15,6 @@ export default function PlanPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [sources, setSources] = useState<SourceDocument[]>([]);
   const [review, setReview] = useState<AnalysisReview>({ facts: [], tasks: [], source_blocks: [] });
   const [schedule, setSchedule] = useState<ScheduleVersion>({ version: null, schedule_snapshot: null });
   const [versions, setVersions] = useState<ScheduleVersionSummary[]>([]);
@@ -27,11 +24,11 @@ export default function PlanPage() {
   const load = useCallback(async (initial = false) => {
     if (initial) setLoading(true); setError("");
     try {
-      const [projectData, dashboardData, taskData, sourceData, reviewData, scheduleData, versionData] = await Promise.all([
-        api.projects.get(projectId), api.dashboard(projectId, isoToday()), api.tasks.list(projectId), api.sources.list(projectId),
+      const [projectData, dashboardData, taskData, reviewData, scheduleData, versionData] = await Promise.all([
+        api.projects.get(projectId), api.dashboard(projectId, isoToday()), api.tasks.list(projectId),
         api.analysis.review(projectId), api.schedule.get(projectId), api.schedule.versions(projectId),
       ]);
-      setProject(projectData); setDashboard(dashboardData); setTasks(taskData); setSources(sourceData);
+      setProject(projectData); setDashboard(dashboardData); setTasks(taskData);
       setReview(reviewData); setSchedule(scheduleData); setVersions(versionData);
     } catch (e) { setError(errorMessage(e)); }
     finally { setLoading(false); }
@@ -56,7 +53,7 @@ export default function PlanPage() {
   return (
     <main className="page-shell py-8 sm:py-10">
       <ProjectNav projectId={projectId} projectName={project.name} />
-      <div className="mb-7"><p className="eyebrow">Plan & control</p><h2 className="mt-2 text-3xl font-black tracking-[-.04em]">계획과 진행 현황</h2><p className="mt-2 text-sm text-[#687874]">근거를 검토해 업무를 확정하고, 실행 가능한 일정으로 전환하세요.</p></div>
+      <div className="mb-7"><p className="eyebrow">Plan & control</p><h2 className="mt-2 text-3xl font-black tracking-[-.04em]">계획과 진행 현황</h2><p className="mt-2 text-sm text-[#687874]">실행 일정에서 업무를 직접 추가·체크하고, 진행 현황을 확인하세요.</p></div>
       {error && <div className="mb-4"><ErrorState message={error} onRetry={() => void load()} /></div>}
 
       <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6" aria-label="프로젝트 대시보드">
@@ -72,9 +69,7 @@ export default function PlanPage() {
 
       {schedule.schedule_snapshot?.infeasible && <div className="warning-banner mb-5"><b>⚠ 목표일 준수 불가</b><span className="ml-2 text-sm">현재 가용시간으로 모든 업무를 배치할 수 없습니다. 아래 일정에서 재계획 조정안을 선택하세요.</span></div>}
       <div className="space-y-5">
-        <ReviewPanel projectId={projectId} review={review} sources={sources} onChange={() => load()} />
         <SchedulePanel project={project} tasks={tasks} facts={review.facts} schedule={schedule} versions={versions} onChange={() => load()} />
-        <TaskManager projectId={projectId} tasks={tasks} onChange={() => load()} />
       </div>
     </main>
   );

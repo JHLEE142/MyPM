@@ -72,3 +72,29 @@ def test_seed_demo_creates_five_projects_with_tasks_and_schedules():
         assert calculate_pace(db, by_name["고객사 A SI 구축"], date(2026, 8, 6))["status"] == "warning"
 
     assert seed_demo() == []
+
+
+def test_delete_task_and_delete_all_tasks(client):
+    project = client.post("/api/projects", json={"name": "삭제 테스트"}).json()
+    ids = [
+        client.post(f"/api/projects/{project['id']}/tasks", json={"title": f"업무 {i}", "estimated_hours": 1}).json()["id"]
+        for i in range(3)
+    ]
+    assert client.delete(f"/api/tasks/{ids[0]}").status_code == 204
+    assert client.get(f"/api/tasks/{ids[0]}").status_code == 404
+    response = client.delete(f"/api/projects/{project['id']}/tasks")
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 2
+    assert client.get(f"/api/projects/{project['id']}/tasks").json() == []
+
+
+def test_delete_task_with_dependent_removes_dependency_edge(client):
+    project = client.post("/api/projects", json={"name": "의존 삭제"}).json()
+    a = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "A", "estimated_hours": 1}).json()
+    b = client.post(
+        f"/api/projects/{project['id']}/tasks",
+        json={"title": "B", "estimated_hours": 1, "dependency_ids": [a["id"]]},
+    ).json()
+    assert client.delete(f"/api/tasks/{a['id']}").status_code == 204
+    remaining = client.get(f"/api/tasks/{b['id']}").json()
+    assert remaining["dependencies"] == []
