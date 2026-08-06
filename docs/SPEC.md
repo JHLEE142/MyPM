@@ -64,7 +64,7 @@ LLM 사용 시점: 최초 문서 분석, 문서 추가 시, 업무 설명 구체
 
 ## 3. 사용자 흐름
 
-1. **프로젝트 생성**: 프로젝트명, 설명, 시작일, 목표 완료일, 작업 가능 요일(예: 월~금), 하루 작업 가능 시간, 제외할 날짜, 일정 여유분(buffer_ratio, 예: 20%), 중요 목표.
+1. **프로젝트 생성**: 프로젝트명만으로 기본 설정을 적용해 빠르게 생성한다. 담당자는 선택이며, AI 대화 또는 상세 폼에서 설명, 시작일, 목표 완료일, 작업 가능 요일, 하루 작업 가능 시간, 제외 날짜, 일정 여유분을 설정할 수 있다.
 2. **자료 업로드**: 파일 업로드(PDF/DOCX/XLSX/TXT/MD/HWPX) 또는 텍스트 직접 입력(회의 메모, 인터뷰 녹취 텍스트 등). 음성 파일은 다음 버전.
 3. **문서 분석**: AI가 목표, 성공 기준, 산출물, 고정 마감일, 마일스톤, 요구사항, 업무 후보, 의존관계, 담당자 후보, 우선순위, 예상 공수, 위험, 확인 질문, 문서 간 충돌을 추출.
 4. **분석 결과 검토**: 항목별 승인/수정/거절/합치기/분할/보류. 문서 간 마감일 충돌은 별도 표시하고 사용자에게 선택시킴.
@@ -73,14 +73,15 @@ LLM 사용 시점: 최초 문서 분석, 문서 추가 시, 업무 설명 구체
 7. **페이스 분석**: 실제 진도율, 예정 진도율, 차이, 최근 작업 속도, 예상 완료일, 마감까지 필요한 일일 작업량, 위험도.
 8. **재계획**: 미완료 발생 시 조정안(A. 하루 가용시간 추가, B. 낮은 우선순위 업무 이월, C. 후속 기간 단축, D. 목표일 변경)을 **제안**하고 사용자가 선택. 시스템이 임의 확정하지 않는다.
 
-## 4. 화면 (첫 버전은 정확히 이 5개 라우트)
+## 4. 화면
 
 ```
 /projects                    프로젝트 목록 (진행률, 예정 진도율, 상태, 목표일, 예상 완료일, 페이스, 다음 마일스톤)
-/projects/new                프로젝트 생성 마법사 (3단계: 기본 정보 → 가용시간 → 자료 업로드)
+/projects/new                빠른 생성 (프로젝트명 + 선택 담당자), AI 대화/상세 폼 진입
 /projects/[id]/today         오늘 할 일 (오늘 목표 체크리스트, 예상 소요, 가용시간 대비 초과 경고)
 /projects/[id]/sources       자료 보관함 + 업로드 (파일별 분석 상태: 업로드됨/텍스트 추출 중/AI 분석 중/검토 필요/분석 완료/분석 실패)
-/projects/[id]/plan          업무 검토(AI 분석 결과 승인/수정/거절 + 원문 근거·신뢰도) · 일정(일간/주간/월간 탭) · 진도 대시보드 카드
+/projects/[id]/plan          업무 검토 · 일정 · 진도 대시보드 카드와 공수 진행 그래프
+/projects/[id]/settings      프로젝트 기준과 가용시간 수정
 ```
 
 - 대시보드는 /plan 상단 카드로 넣는다(별도 화면 금지).
@@ -199,7 +200,7 @@ LLM 사용 시점: 최초 문서 분석, 문서 추가 시, 업무 설명 구체
 
 ## 9. 데이터 모델 (PostgreSQL 기준, SQLAlchemy)
 
-- **projects**: id, name, description, start_date, target_date, work_days, daily_capacity_hours, buffer_ratio, status, created_at, updated_at
+- **projects**: id, name, owner, description, start_date, target_date, work_days, daily_capacity_hours, buffer_ratio, status, created_at, updated_at
 - **source_documents**: id, project_id, file_name, file_type, storage_path, extracted_text, analysis_status, uploaded_at
 - **source_blocks**: id, source_document_id, block_type, page_number, sheet_name, section_title, content, block_order
 - **analysis_runs**: id, project_id, status, model_provider, prompt_version, started_at, completed_at, error_message

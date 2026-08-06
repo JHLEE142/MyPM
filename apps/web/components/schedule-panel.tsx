@@ -82,7 +82,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
   }
 
   return (
-    <section className="panel overflow-hidden">
+    <section id="schedule-planner" className="panel scroll-mt-5 overflow-hidden">
       <div className="flex flex-col gap-4 border-b border-[#e2e9e6] p-5 md:flex-row md:items-center md:justify-between">
         <div><p className="eyebrow">Schedule</p><h2 className="mt-1 text-xl font-black">실행 일정</h2><p className="mt-1 text-xs text-[#71807b]">목록과 기간별 그룹으로 확인합니다. 완료 업무와 고정 일정은 재계획에서 보호됩니다.</p></div>
         <div className="flex flex-wrap gap-2"><button type="button" className="btn btn-secondary" disabled={busy || tasks.filter((task) => ["approved", "scheduled", "in_progress", "blocked"].includes(task.status)).length === 0} onClick={() => void generate()}>{schedule.version ? "일정 다시 생성" : "일정 생성"}</button><button type="button" className="btn btn-primary" disabled={busy || !schedule.version} onClick={() => setReplanOpen((value) => !value)}>재계획</button></div>

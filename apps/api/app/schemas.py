@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -36,11 +36,12 @@ class ORMModel(BaseModel):
 
 class ProjectBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    owner: str | None = Field(default=None, max_length=100)
     description: str | None = None
-    start_date: date
-    target_date: date
+    start_date: date = Field(default_factory=date.today)
+    target_date: date = Field(default_factory=lambda: date.today() + timedelta(days=30))
     work_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
-    daily_capacity_hours: float = Field(default=8.0, gt=0)
+    daily_capacity_hours: float = Field(default=4.0, gt=0)
     buffer_ratio: float = Field(default=0.2, ge=0, lt=1)
     excluded_dates: list[date] = Field(default_factory=list)
     status: ProjectStatus = "active"
@@ -61,6 +62,7 @@ class ProjectCreate(ProjectBase):
 
 class ProjectPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    owner: str | None = Field(default=None, max_length=100)
     description: str | None = None
     start_date: date | None = None
     target_date: date | None = None
@@ -74,6 +76,7 @@ class ProjectPatch(BaseModel):
 class ProjectOut(ORMModel):
     id: int
     name: str
+    owner: str | None
     description: str | None
     start_date: date
     target_date: date

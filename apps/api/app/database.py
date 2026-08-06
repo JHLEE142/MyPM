@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -25,6 +25,16 @@ if DATABASE_URL.startswith("sqlite"):
 
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+def ensure_schema() -> None:
+    Base.metadata.create_all(bind=engine)
+    schema = inspect(engine)
+    if "projects" in schema.get_table_names() and "owner" not in {
+        column["name"] for column in schema.get_columns("projects")
+    }:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE projects ADD COLUMN owner VARCHAR(100)"))
 
 
 def get_db() -> Generator[Session, None, None]:

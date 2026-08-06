@@ -5,6 +5,7 @@ export function ProjectNav({ projectId, projectName }: { projectId: number; proj
     { href: `/projects/${projectId}/today`, label: "오늘" },
     { href: `/projects/${projectId}/plan`, label: "계획 · 검토" },
     { href: `/projects/${projectId}/sources`, label: "자료" },
+    { href: `/projects/${projectId}/settings`, label: "설정" },
   ];
   return (
     <div className="mb-6 flex flex-col gap-4 border-b border-[#dce5e1] pb-4 sm:flex-row sm:items-end sm:justify-between">

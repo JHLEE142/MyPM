@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AnalysisReview, Dashboard, Project, ScheduleVersion, ScheduleVersionSummary, SourceDocument, Task } from "@pacepm/shared-types";
 import { ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
+import { ProgressChart } from "@/components/progress-chart";
 import { ReviewPanel } from "@/components/review-panel";
 import { SchedulePanel } from "@/components/schedule-panel";
 import { TaskManager } from "@/components/task-manager";
@@ -66,6 +67,8 @@ export default function PlanPage() {
         <DashboardCard label="이번 주 완료율" value={`${weekStats.count ? Math.round(weekStats.completed / weekStats.count * 100) : 0}%`} detail={`${weekStats.completed}/${weekStats.count}개 완료`} />
         <DashboardCard label="남은 공수" value={formatHours(pace.forecast.remaining_hours)} detail={pace.forecast.required_daily_hours == null ? "작업 가능일 없음" : `목표까지 하루 ${formatHours(pace.forecast.required_daily_hours)} 필요`} />
       </section>
+
+      <ProgressChart snapshot={schedule.schedule_snapshot} tasks={tasks} />
 
       {schedule.schedule_snapshot?.infeasible && <div className="warning-banner mb-5"><b>⚠ 목표일 준수 불가</b><span className="ml-2 text-sm">현재 가용시간으로 모든 업무를 배치할 수 없습니다. 아래 일정에서 재계획 조정안을 선택하세요.</span></div>}
       <div className="space-y-5">

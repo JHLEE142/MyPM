@@ -96,6 +96,7 @@ function ProjectListRow({ row, deleting, onDelete }: { row: ProjectRow; deleting
     <article className="grid gap-5 p-5 transition-colors hover:bg-[#fbfdfc] lg:grid-cols-[minmax(220px,1.4fr)_1fr_1fr_1fr_48px] lg:items-center">
       <div className="min-w-0">
         <div className="flex items-center gap-2"><Link href={`/projects/${project.id}/today`} className="truncate text-[15px] font-black hover:text-[#166a58]">{project.name}</Link><span className={`badge ${paceTone(status)}`}>{paceLabel[status] ?? "주의"}</span></div>
+        {project.owner && <p className="mt-1 text-xs font-bold text-[#536b63]">담당 {project.owner}</p>}
         <p className="mt-1 line-clamp-1 text-xs text-[#71807b]">{project.description || "설명이 없습니다."}</p>
       </div>
       <div>

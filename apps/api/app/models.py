@@ -18,11 +18,12 @@ class Project(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     target_date: Mapped[date] = mapped_column(Date, nullable=False)
     work_days: Mapped[list[int]] = mapped_column(JSON, default=lambda: [0, 1, 2, 3, 4])
-    daily_capacity_hours: Mapped[float] = mapped_column(Float, default=8.0)
+    daily_capacity_hours: Mapped[float] = mapped_column(Float, default=4.0)
     buffer_ratio: Mapped[float] = mapped_column(Float, default=0.2)
     excluded_dates: Mapped[list[str]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(40), default="active")

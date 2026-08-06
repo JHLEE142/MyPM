@@ -16,6 +16,7 @@ export type TaskStatus =
 export interface Project {
   id: number;
   name: string;
+  owner: string | null;
   description: string | null;
   start_date: string;
   target_date: string;
@@ -30,13 +31,14 @@ export interface Project {
 
 export interface ProjectCreate {
   name: string;
+  owner?: string | null;
   description?: string | null;
-  start_date: string;
-  target_date: string;
-  work_days: number[];
-  daily_capacity_hours: number;
-  buffer_ratio: number;
-  excluded_dates: string[];
+  start_date?: string;
+  target_date?: string;
+  work_days?: number[];
+  daily_capacity_hours?: number;
+  buffer_ratio?: number;
+  excluded_dates?: string[];
   status?: ProjectStatus;
 }
 

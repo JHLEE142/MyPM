@@ -5,10 +5,11 @@ PacePM(Project Pace Manager)은 프로젝트 자료를 분석해 목표·산출�
 ## 주요 화면
 
 - `/projects`: 전체 프로젝트 진행률, 예정 진도율, 위험도와 주요 일정
-- `/projects/new`: 기본 정보 → 가용시간 → 선택 자료 업로드의 3단계 생성
+- `/projects/new`: 이름·담당자만으로 빠르게 생성하거나 AI 대화/상세 폼으로 생성
 - `/projects/{id}/today`: 오늘 업무, 가용시간 초과 경고, 완료 체크와 진행률
 - `/projects/{id}/sources`: 파일·텍스트 자료, 분석 실행과 상태 확인
 - `/projects/{id}/plan`: 진행 대시보드, AI 결과 검토, 일·주·월 일정, 재계획과 수동 업무
+- `/projects/{id}/settings`: 프로젝트 기준과 가용시간 수정
 
 ## 로컬 실행
 
@@ -26,6 +27,8 @@ uvicorn app.main:app --reload --env-file .env
 ```
 
 기본값은 `sqlite:///./pacepm.db`이며 API는 `http://localhost:8000`에서 실행됩니다. `ANTHROPIC_API_KEY`가 없으면 결정론적 Mock 분석기를 사용합니다.
+
+데모 데이터는 `cd apps/api && .venv/bin/python seed_demo.py`로 프로젝트 5개를 추가합니다(`DATABASE_URL` 적용, 같은 이름은 건너뜀).
 
 ### 2. Web
 
