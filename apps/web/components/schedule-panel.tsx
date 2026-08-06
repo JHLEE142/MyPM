@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Project, ProjectFact, ReplanRequest, ScheduleComparison, ScheduleVersion, ScheduleVersionSummary, Task, TaskPriority } from "@pacepm/shared-types";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatFullDate, formatHours, isoToday, priorityLabel, taskStatusLabel, taskStatusTone } from "@/lib/format";
@@ -37,6 +37,8 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
   const [taskBusyId, setTaskBusyId] = useState<number | "new" | "all" | null>(null);
   const [dragging, setDragging] = useState<{ group: string; id: number } | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
+  // 핸들러는 렌더 클로저가 아닌 ref에서 최신 드래그 상태를 읽는다 (state는 스타일 표시 전용)
+  const draggingRef = useRef<{ group: string; id: number } | null>(null);
   const snapshot = schedule.schedule_snapshot;
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
   const listTasks = useMemo(
@@ -179,11 +181,18 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
         event.stopPropagation();
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", String(task.id));
-        setDragging({ group, id: task.id });
+        draggingRef.current = { group, id: task.id };
+        setDragging(draggingRef.current);
       },
-      onDragEnd: (event: React.DragEvent) => { event.stopPropagation(); setDragging(null); setDragOverId(null); },
+      onDragEnd: (event: React.DragEvent) => {
+        event.stopPropagation();
+        draggingRef.current = null;
+        setDragging(null);
+        setDragOverId(null);
+      },
       onDragOver: (event: React.DragEvent) => {
-        if (dragging?.group === group && dragging.id !== task.id) {
+        const current = draggingRef.current;
+        if (current?.group === group && current.id !== task.id) {
           event.preventDefault();
           event.stopPropagation();
           setDragOverId(task.id);
@@ -194,7 +203,9 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
         event.preventDefault();
         event.stopPropagation();
         setDragOverId(null);
-        if (dragging?.group === group) void reorderSiblings(siblings, dragging.id, task.id);
+        const current = draggingRef.current;
+        if (current?.group === group && current.id !== task.id) void reorderSiblings(siblings, current.id, task.id);
+        draggingRef.current = null;
         setDragging(null);
       },
     };
