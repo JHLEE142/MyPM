@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Dashboard, Project, Task } from "@pacepm/shared-types";
+import type { Dashboard, Project, ScheduleSnapshot, Task } from "@pacepm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
+import { ProjectAreaChart } from "@/components/project-area-chart";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatHours, isoToday, paceLabel, paceTone } from "@/lib/format";
 
-interface ProjectRow { project: Project; dashboard: Dashboard | null; tasks: Task[]; }
+interface ProjectRow { project: Project; dashboard: Dashboard | null; tasks: Task[]; snapshot: ScheduleSnapshot | null; }
 
 export default function ProjectsPage() {
   const [rows, setRows] = useState<ProjectRow[]>([]);
@@ -20,11 +21,12 @@ export default function ProjectsPage() {
     try {
       const projects = await api.projects.list();
       const detail = await Promise.all(projects.map(async (project) => {
-        const [dashboard, tasks] = await Promise.all([
+        const [dashboard, tasks, schedule] = await Promise.all([
           api.dashboard(project.id, isoToday()).catch(() => null),
           api.tasks.list(project.id).catch(() => []),
+          api.schedule.get(project.id).catch(() => null),
         ]);
-        return { project, dashboard, tasks };
+        return { project, dashboard, tasks, snapshot: schedule?.schedule_snapshot ?? null };
       }));
       setRows(detail);
     } catch (e) { setError(errorMessage(e)); }
@@ -56,6 +58,37 @@ export default function ProjectsPage() {
         <div><p className="eyebrow">Portfolio overview</p><h1 className="mt-2 text-3xl font-black tracking-[-.045em] sm:text-4xl">프로젝트의 속도를 한눈에</h1><p className="mt-2 text-sm text-[#687874]">계획과 실제의 차이를 확인하고 다음 작업을 결정하세요.</p></div>
         <Link className="btn btn-primary" href="/projects/new">＋ 새 프로젝트 만들기</Link>
       </div>
+
+      {!loading && rows.length > 0 && (
+        <section className="mb-6" aria-label="프로젝트별 진행 현황">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-black text-[#40514c]">프로젝트별 진행 현황</h2>
+            <div className="flex gap-4 text-[11px] font-bold text-[#71807b]" aria-label="범례">
+              <span className="flex items-center gap-1.5"><i className="size-3 rounded-sm bg-[#166a58]/25 ring-1 ring-inset ring-[#166a58]" aria-hidden />완료 누적</span>
+              <span className="flex items-center gap-1.5"><i className="size-3 rounded-sm bg-[#e7edea] ring-1 ring-inset ring-[#c6d3ce]" aria-hidden />계획 누적</span>
+              <span className="flex items-center gap-1.5"><i className="h-3 border-l border-dashed border-[#9db3ab]" aria-hidden />오늘</span>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {rows.map(({ project, dashboard, tasks, snapshot }) => {
+              const status = dashboard?.pace.status ?? "warning";
+              return (
+                <Link key={project.id} href={`/projects/${project.id}/plan`} className="card block p-4 transition-shadow hover:shadow-md">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-black">{project.name}</span>
+                    <span className={`badge shrink-0 ${paceTone(status)}`}>{paceLabel[status] ?? "주의"}</span>
+                  </div>
+                  <ProjectAreaChart snapshot={snapshot} tasks={tasks} startDate={project.start_date} targetDate={project.target_date} />
+                  <p className="mt-2 text-[11px] font-bold text-[#71807b]">
+                    진행 {Math.round(dashboard?.pace.actual_progress_percent ?? 0)}%
+                    {project.owner ? ` · 담당 ${project.owner}` : ""}
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {!loading && rows.length > 0 && (
         <section className="mb-6 grid gap-3 sm:grid-cols-3" aria-label="프로젝트 요약">
