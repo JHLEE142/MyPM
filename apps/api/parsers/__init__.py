@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .archive_safety import enforce_block_limits
 from .docx_parser import parse_docx
 from .hwpx_parser import parse_hwpx
 from .pdf_parser import parse_pdf
@@ -28,7 +29,7 @@ def parse_document(path: str | Path, file_type: str | None = None) -> list[dict]
         if suffix == "hwp":
             raise UnsupportedFileTypeError("HWPX 또는 PDF로 변환해 다시 업로드해 주세요")
         raise UnsupportedFileTypeError(f"지원하지 않는 파일 형식입니다: {suffix}")
-    return parsers[suffix](path)
+    return enforce_block_limits(parsers[suffix](path))
 
 
 __all__ = ["parse_document", "parse_text", "UnsupportedFileTypeError"]

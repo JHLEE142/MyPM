@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
+import threading
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ai.document_analyzer import get_provider
@@ -18,6 +21,7 @@ from scheduler.progress import pace_ratio, pace_status, planned_progress, weight
 from .database import SessionLocal
 from .models import (
     AnalysisRun,
+    Milestone,
     Project,
     ProjectFact,
     ScheduleVersion,
@@ -32,6 +36,9 @@ from .models import (
 
 
 SCHEDULABLE_STATUSES = {"approved", "scheduled", "in_progress", "blocked"}
+APPROVED_TASK_STATUSES = {"approved", "scheduled", "in_progress", "completed", "on_hold", "blocked"}
+ANALYSIS_SEMAPHORE = threading.BoundedSemaphore(2)
+MAX_ANALYSIS_CHARACTERS = 200_000
 
 
 def project_or_none(db: Session, project_id: int) -> Project | None:
@@ -63,41 +70,89 @@ def _update_task_plan(tasks: list[Task], snapshot: dict[str, Any], *, protected_
         dates[int(placement["task_id"])].append(date.fromisoformat(str(placement["date"])))
     unscheduled_ids = {int(item["task_id"]) for item in snapshot["unscheduled"]}
     for task in tasks:
-        if task.id in protected_ids:
+        if task.status == "completed" or task.id in protected_ids:
             continue
         task_dates = dates.get(task.id, [])
         task.planned_start_date = min(task_dates) if task_dates else None
         task.planned_end_date = max(task_dates) if task_dates else None
-        if task.id not in unscheduled_ids and task_dates and task.status == "approved":
-            task.status = "scheduled"
+        if task_dates:
+            if task.status == "approved":
+                task.status = "scheduled"
+        elif task.status == "scheduled":
+            task.status = "approved"
+
+
+def _completed_dependency_ends(tasks: list[Task], start_date: date) -> dict[int, date]:
+    return {
+        task.id: task.actual_end_date or (start_date - date.resolution)
+        for task in tasks
+        if task.status == "completed"
+    }
+
+
+def _schedule_task_value(task: Task, *, remaining_only: bool = False) -> dict[str, Any]:
+    remaining = task.estimated_hours
+    if remaining_only and task.status == "in_progress":
+        remaining = task.estimated_hours * (1 - task.progress_percent / 100)
+    return {
+        "id": task.id,
+        "priority": task.priority,
+        "due_date": task.due_date,
+        "estimated_hours": remaining,
+        "original_estimated_hours": task.estimated_hours,
+        "remaining_estimated_hours": remaining,
+        "dependency_ids": [dependency.depends_on_task_id for dependency in task.dependencies],
+    }
+
+
+def _save_schedule_version(
+    db: Session,
+    project_id: int,
+    reason: str,
+    snapshot: dict[str, Any],
+    tasks: list[Task],
+    *,
+    protected_ids: set[int] | None = None,
+) -> ScheduleVersion:
+    for attempt in range(2):
+        version = ScheduleVersion(
+            project_id=project_id,
+            version=next_schedule_version(db, project_id),
+            reason=reason,
+            schedule_snapshot=snapshot,
+        )
+        try:
+            with db.begin_nested():
+                db.add(version)
+                db.flush()
+        except IntegrityError:
+            if attempt == 0:
+                continue
+            raise
+        _update_task_plan(tasks, snapshot, protected_ids=protected_ids)
+        db.commit()
+        db.refresh(version)
+        return version
+    raise RuntimeError("schedule version allocation failed")
 
 
 def generate_schedule(db: Session, project: Project, reason: str = "initial plan") -> ScheduleVersion:
     tasks = list(db.scalars(task_query(project.id)))
     eligible = [task for task in tasks if task.status in SCHEDULABLE_STATUSES and task.status != "completed"]
     snapshot = ScheduleEngine().generate(
-        eligible,
+        [_schedule_task_value(task) for task in eligible],
         start_date=project.start_date,
         target_date=project.target_date,
         work_days=project.work_days,
         daily_capacity_hours=project.daily_capacity_hours,
         buffer_ratio=project.buffer_ratio,
         excluded_dates=_excluded(project),
+        satisfied_dependency_ends=_completed_dependency_ends(tasks, project.start_date),
     )
-    version = ScheduleVersion(
-        project_id=project.id,
-        version=next_schedule_version(db, project.id),
-        reason=reason,
-        schedule_snapshot=snapshot,
-    )
-    db.add(version)
-    _update_task_plan(tasks, snapshot)
-    db.commit()
-    db.refresh(version)
-    return version
+    return _save_schedule_version(db, project.id, reason, snapshot, tasks)
 
 
-def replan_schedule(db: Session, project: Project, reason: str) -> ScheduleVersion:
+def replan_schedule(db: Session, project: Project, reason: str, strategy: str = "redistribute") -> ScheduleVersion:
     latest = db.scalar(
         select(ScheduleVersion)
         .where(ScheduleVersion.project_id == project.id)
@@ -110,19 +165,54 @@ def replan_schedule(db: Session, project: Project, reason: str) -> ScheduleVersi
         for task in tasks
         if task.status == "completed"
         or task.locked
-        or task.due_date is not None
         or task.status in {"meeting", "review"}
         or (task.actual_start_date is not None and task.priority in {"critical", "high"})
     }
     previous = latest.schedule_snapshot.get("placements", []) if latest else []
-    reserved = [placement for placement in previous if int(placement["task_id"]) in protected_ids]
+    previous_by_task: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for placement in previous:
+        previous_by_task[int(placement["task_id"])].append(placement)
+    reserved_task_ids = protected_ids & set(previous_by_task)
+    reserved: list[dict[str, Any]] = []
+    unsatisfied_reserved_ids: set[int] = set()
+    task_by_id = {task.id: task for task in tasks}
+    for task_id in sorted(reserved_task_ids):
+        task = task_by_id[task_id]
+        expected = task.estimated_hours
+        if task.status == "in_progress":
+            expected *= 1 - task.progress_percent / 100
+        reserved_hours = sum(float(item["hours"]) for item in previous_by_task[task_id])
+        satisfies_dependencies = task.status == "completed" or reserved_hours + 1e-9 >= expected
+        if not satisfies_dependencies:
+            unsatisfied_reserved_ids.add(task_id)
+        for placement in previous_by_task[task_id]:
+            reserved.append({
+                **placement,
+                "original_estimated_hours": task.estimated_hours,
+                "remaining_estimated_hours": round(expected, 6),
+                "satisfies_dependencies": satisfies_dependencies,
+            })
+    deferred_tasks = [
+        task
+        for task in tasks
+        if strategy == "defer_low_priority"
+        and task.priority == "low"
+        and task.progress_percent <= 0
+        and task.actual_start_date is None
+        and task.status in SCHEDULABLE_STATUSES
+        and task.id not in reserved_task_ids
+    ]
+    deferred_ids = {task.id for task in deferred_tasks}
     movable = [
         task
         for task in tasks
-        if task.id not in protected_ids and task.status in SCHEDULABLE_STATUSES and task.status != "completed"
+        if task.id not in reserved_task_ids
+        and task.id not in deferred_ids
+        and task.status in SCHEDULABLE_STATUSES
+        and task.status != "completed"
     ]
     snapshot = ScheduleEngine().generate(
-        movable,
+        [_schedule_task_value(task, remaining_only=True) for task in movable],
         start_date=max(project.start_date, date.today()),
         target_date=project.target_date,
         work_days=project.work_days,
@@ -130,19 +220,15 @@ def replan_schedule(db: Session, project: Project, reason: str) -> ScheduleVersi
         buffer_ratio=project.buffer_ratio,
         excluded_dates=_excluded(project),
         reserved_placements=reserved,
+        satisfied_dependency_ends=_completed_dependency_ends(tasks, project.start_date),
+        unsatisfied_dependency_ids=unsatisfied_reserved_ids,
     )
     snapshot["protected_task_ids"] = sorted(protected_ids)
-    version = ScheduleVersion(
-        project_id=project.id,
-        version=next_schedule_version(db, project.id),
-        reason=reason,
-        schedule_snapshot=snapshot,
-    )
-    db.add(version)
-    _update_task_plan(tasks, snapshot, protected_ids=protected_ids)
-    db.commit()
-    db.refresh(version)
-    return version
+    snapshot["deferred"] = [
+        {"task_id": task.id, "reason": "low_priority_not_started"}
+        for task in sorted(deferred_tasks, key=lambda item: item.id)
+    ]
+    return _save_schedule_version(db, project.id, reason, snapshot, tasks, protected_ids=reserved_task_ids)
 
 
 def calculate_forecast(db: Session, project: Project, as_of: date | None = None) -> dict[str, Any]:
@@ -165,27 +251,70 @@ def calculate_pace(db: Session, project: Project, as_of: date | None = None) -> 
     as_of = as_of or date.today()
     tasks = [task for task in db.scalars(task_query(project.id)) if task.status not in {"pending_review", "extracted", "rejected"}]
     actual = weighted_progress(tasks)
-    latest = db.scalar(
-        select(ScheduleVersion)
-        .where(ScheduleVersion.project_id == project.id)
-        .order_by(ScheduleVersion.version.desc())
-        .limit(1)
+    versions = list(
+        db.scalars(
+            select(ScheduleVersion)
+            .where(ScheduleVersion.project_id == project.id)
+            .order_by(ScheduleVersion.version, ScheduleVersion.id)
+        )
     )
-    placements = latest.schedule_snapshot.get("placements", []) if latest else []
+    baseline: list[dict[str, Any]] = []
+    baseline_ids: set[int] = set()
+    for index, version in enumerate(versions):
+        version_placements = version.schedule_snapshot.get("placements", [])
+        grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for placement in version_placements:
+            grouped[int(placement["task_id"])].append(placement)
+        if index == 0:
+            baseline.extend(version_placements)
+            baseline_ids = {int(task_id) for task_id in version.schedule_snapshot.get("task_ids", [])}
+            if not baseline_ids:
+                baseline_ids = set(grouped)
+                baseline_ids.update(
+                    int(item["task_id"]) for item in version.schedule_snapshot.get("unscheduled", [])
+                )
+            continue
+        for task_id in sorted(set(grouped) - baseline_ids):
+            baseline.extend(grouped[task_id])
+            baseline_ids.add(task_id)
+    completed_ids = {task.id for task in tasks if task.status == "completed"}
+    baseline = [item for item in baseline if int(item["task_id"]) not in completed_ids]
+    for task in tasks:
+        if task.status != "completed":
+            continue
+        completed_on = task.actual_end_date or task.planned_end_date
+        if completed_on is not None:
+            baseline.append({"task_id": task.id, "date": completed_on.isoformat(), "hours": task.estimated_hours})
     total = sum(task.estimated_hours for task in tasks)
-    planned = planned_progress(placements, total, as_of) if latest else 0.0
+    planned = planned_progress(baseline, total, as_of) if versions or completed_ids else 0.0
     ratio = pace_ratio(actual, planned)
     forecast = calculate_forecast(db, project, as_of)
     predicted = forecast.get("estimated_completion_date")
     delay_days = max(0, (date.fromisoformat(str(predicted)) - project.target_date).days) if predicted else 0
     critical_blocked = any(task.status == "blocked" and task.priority == "critical" for task in tasks)
-    status = pace_status(ratio, delay_days, dependency_blocked=critical_blocked)
+    critical_milestone_failed = db.scalar(
+        select(Milestone.id)
+        .join(Task, Task.milestone_id == Milestone.id)
+        .where(
+            Milestone.project_id == project.id,
+            Milestone.target_date < as_of,
+            Task.status.in_(sorted(APPROVED_TASK_STATUSES - {"completed"})),
+        )
+        .limit(1)
+    ) is not None
+    status = pace_status(
+        ratio,
+        delay_days,
+        dependency_blocked=critical_blocked,
+        critical_milestone_failed=critical_milestone_failed,
+    )
     return {
         "actual_progress_percent": actual,
         "planned_progress_percent": planned,
         "pace_ratio": ratio,
         "status": status,
         "delay_days": delay_days,
+        "critical_milestone_failed": critical_milestone_failed,
         "target_date": project.target_date.isoformat(),
         "forecast": forecast,
     }
@@ -203,10 +332,12 @@ FACT_FIELD_MAP = {
 
 
 def run_analysis(run_id: int, project_id: int) -> None:
+    ANALYSIS_SEMAPHORE.acquire()
     db = SessionLocal()
     run = db.get(AnalysisRun, run_id)
     if run is None:
         db.close()
+        ANALYSIS_SEMAPHORE.release()
         return
     try:
         provider = get_provider()
@@ -225,6 +356,9 @@ def run_analysis(run_id: int, project_id: int) -> None:
         for source in sources:
             source.analysis_status = "analyzing"
         db.commit()
+        total_characters = sum(len(block.content) for source in sources for block in source.blocks)
+        if total_characters > MAX_ANALYSIS_CHARACTERS:
+            raise ValueError("문서가 너무 큽니다. 분할 업로드해 주세요")
 
         analyses = []
         valid_refs: set[tuple[int, int]] = set()
@@ -262,12 +396,20 @@ def run_analysis(run_id: int, project_id: int) -> None:
         db.execute(
             delete(ProjectFact).where(ProjectFact.project_id == project_id, ProjectFact.review_status == "pending_review")
         )
+        protected_dependency_ids = set(
+            db.scalars(
+                select(TaskDependency.depends_on_task_id)
+                .join(Task, Task.id == TaskDependency.task_id)
+                .where(Task.project_id == project_id, Task.status.in_(sorted(APPROVED_TASK_STATUSES)))
+            )
+        )
         old_pending = list(
             db.scalars(
                 select(Task).where(
                     Task.project_id == project_id,
                     Task.ai_generated.is_(True),
                     Task.status.in_(["extracted", "pending_review"]),
+                    Task.id.not_in(protected_dependency_ids),
                 )
             )
         )
@@ -289,12 +431,40 @@ def run_analysis(run_id: int, project_id: int) -> None:
                         source_block_id=item.source_block_id,
                     )
                 )
+        milestone_by_title = {
+            milestone.title.strip().casefold(): milestone
+            for milestone in db.scalars(
+                select(Milestone).where(Milestone.project_id == project_id).order_by(Milestone.id)
+            )
+        }
         title_to_task: dict[str, Task] = {}
         for item in generated.tasks:
+            milestone_id = None
+            if item.milestone and item.milestone.strip():
+                milestone_title = item.milestone.strip()
+                milestone_key = milestone_title.casefold()
+                milestone = milestone_by_title.get(milestone_key)
+                if milestone is None:
+                    milestone = Milestone(
+                        project_id=project_id,
+                        title=milestone_title,
+                        sort_order=len(milestone_by_title),
+                    )
+                    db.add(milestone)
+                    db.flush()
+                    milestone_by_title[milestone_key] = milestone
+                if item.due_date and (milestone.target_date is None or item.due_date < milestone.target_date):
+                    milestone.target_date = item.due_date
+                milestone_id = milestone.id
+            description = item.description.strip()
+            if item.acceptance_criteria:
+                criteria = "\n".join(f"- {criterion}" for criterion in item.acceptance_criteria)
+                description = f"{description}\n\n완료 기준:\n{criteria}" if description else f"완료 기준:\n{criteria}"
             task = Task(
                 project_id=project_id,
                 title=item.title,
-                description=item.description,
+                description=description,
+                milestone_id=milestone_id,
                 status="pending_review",
                 priority=item.priority if item.priority in {"critical", "high", "medium", "low"} else "medium",
                 estimated_hours=item.estimated_hours,
@@ -323,7 +493,8 @@ def run_analysis(run_id: int, project_id: int) -> None:
         run = db.get(AnalysisRun, run_id)
         if run is not None:
             run.status = "failed"
-            run.error_message = str(exc)
+            summary = re.sub(r"(?:[A-Za-z]:\\\\|/)[^\s,;]+", "<path>", str(exc)).strip()
+            run.error_message = f"{type(exc).__name__}: {summary}"[:200]
             run.completed_at = utcnow()
         for source in db.scalars(select(SourceDocument).where(SourceDocument.project_id == project_id)):
             if source.analysis_status == "analyzing":
@@ -332,6 +503,7 @@ def run_analysis(run_id: int, project_id: int) -> None:
         db.commit()
     finally:
         db.close()
+        ANALYSIS_SEMAPHORE.release()
 
 
 def record_task_event(

@@ -6,6 +6,8 @@ from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
+from .archive_safety import MAX_DOCUMENT_BLOCKS
+
 
 def _iter_blocks(document: Document):
     for child in document.element.body.iterchildren():
@@ -20,6 +22,8 @@ def parse_docx(path: str | Path) -> list[dict]:
     blocks: list[dict] = []
     section: str | None = None
     for item in _iter_blocks(document):
+        if len(blocks) >= MAX_DOCUMENT_BLOCKS:
+            raise ValueError("문서 블록 수 초과")
         if isinstance(item, Paragraph):
             content = item.text.strip()
             if not content:

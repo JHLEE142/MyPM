@@ -4,6 +4,8 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
+from .archive_safety import MAX_DOCUMENT_BLOCKS
+
 
 def parse_pdf(path: str | Path) -> list[dict]:
     reader = PdfReader(str(path))
@@ -15,6 +17,8 @@ def parse_pdf(path: str | Path) -> list[dict]:
         if not paragraphs:
             paragraphs = [line.strip() for line in text.splitlines() if line.strip()]
         for paragraph_index, content in enumerate(paragraphs):
+            if len(blocks) >= MAX_DOCUMENT_BLOCKS:
+                raise ValueError("문서 블록 수 초과")
             blocks.append(
                 {
                     "block_type": "paragraph",

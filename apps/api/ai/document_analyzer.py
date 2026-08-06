@@ -68,9 +68,12 @@ class MockProvider(AnalysisProvider):
                 questions.append(item)
             for pattern in self._date_patterns:
                 for match in pattern.finditer(content):
-                    parsed = date(*(int(value) for value in match.groups()))
+                    try:
+                        parsed_date = date(*(int(value) for value in match.groups()))
+                    except ValueError:
+                        continue
                     fixed_dates.append(
-                        FixedDateItem(content=match.group(0), date=parsed, source_block_id=block_id, confidence=0.9)
+                        FixedDateItem(content=match.group(0), date=parsed_date, source_block_id=block_id, confidence=0.9)
                     )
             lines = content.splitlines()
             for line in lines:
@@ -86,8 +89,12 @@ class MockProvider(AnalysisProvider):
                 for pattern in self._date_patterns:
                     date_match = pattern.search(title)
                     if date_match:
-                        due = date(*(int(value) for value in date_match.groups()))
-                        break
+                        try:
+                            due = date(*(int(value) for value in date_match.groups()))
+                        except ValueError:
+                            continue
+                        else:
+                            break
                 tasks.append(
                     TaskCandidate(
                         title=title,
@@ -132,11 +139,15 @@ class AnthropicProvider(AnalysisProvider):
     def __init__(self, api_key: str | None = None):
         from anthropic import Anthropic
 
-        self.client = Anthropic(api_key=api_key or os.environ["ANTHROPIC_API_KEY"])
+        self.client = Anthropic(
+            api_key=api_key or os.environ["ANTHROPIC_API_KEY"],
+            timeout=120,
+            max_retries=2,
+        )
 
     def analyze_document(self, source_id: int, blocks: list[dict[str, Any]]) -> DocumentAnalysis:
         payload = {"source_id": source_id, "source_blocks": blocks}
-        parsed = self.client.messages.parse(
+        response = self.client.messages.parse(
             model="claude-opus-5",
             max_tokens=8192,
             system=SYSTEM_SAFETY_PROMPT,
@@ -149,9 +160,7 @@ class AnthropicProvider(AnalysisProvider):
             ],
             output_format=DocumentAnalysis,
         )
-        result = getattr(parsed, "parsed_output", None)
-        if result is None and getattr(parsed, "content", None):
-            result = getattr(parsed.content[0], "parsed", None)
+        result = getattr(response, "parsed_output", None)
         if result is None:
             raise ValueError("Anthropic structured output was empty")
         return result if isinstance(result, DocumentAnalysis) else DocumentAnalysis.model_validate(result)

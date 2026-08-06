@@ -5,8 +5,11 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
 
+from .archive_safety import MAX_DOCUMENT_BLOCKS, validate_zip_archive
+
 
 def parse_hwpx(path: str | Path) -> list[dict]:
+    validate_zip_archive(path)
     blocks: list[dict] = []
     with zipfile.ZipFile(path) as archive:
         section_names = sorted(
@@ -26,6 +29,8 @@ def parse_hwpx(path: str | Path) -> list[dict]:
                 content = "".join(texts).strip()
                 if not content:
                     continue
+                if len(blocks) >= MAX_DOCUMENT_BLOCKS:
+                    raise ValueError("문서 블록 수 초과")
                 blocks.append(
                     {
                         "block_type": "paragraph",

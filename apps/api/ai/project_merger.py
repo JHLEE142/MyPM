@@ -25,19 +25,20 @@ def merge_project_analyses(analyses: list[DocumentAnalysis]) -> ProjectAnalysis:
                 tasks.append(task)
     result.task_candidates = tasks
 
-    date_contents: dict[str, set[str]] = {}
-    date_sources: dict[str, int] = {}
+    dates_with_sources: dict[str, set[int]] = {}
     for fixed in result.fixed_dates:
-        label = fixed.content.split(":", 1)[0].strip().casefold()
-        date_contents.setdefault(label, set()).add(fixed.date.isoformat())
-        date_sources[label] = fixed.source_block_id
-    for label, dates in sorted(date_contents.items()):
-        if len(dates) > 1:
-            result.conflicts.append(
-                ExtractedItem(
-                    content=f"마감일 충돌: {label or '날짜'}에 {', '.join(sorted(dates))}",
-                    source_block_id=date_sources[label],
-                    confidence=1.0,
-                )
+        dates_with_sources.setdefault(fixed.date.isoformat(), set()).add(fixed.source_block_id)
+    if len(dates_with_sources) > 1:
+        details = ", ".join(
+            f"{fixed_date} (출처 블록 {', '.join(map(str, sorted(source_ids)))})"
+            for fixed_date, source_ids in sorted(dates_with_sources.items())
+        )
+        first_source = min(source_id for source_ids in dates_with_sources.values() for source_id in source_ids)
+        result.conflicts.append(
+            ExtractedItem(
+                content=f"프로젝트 마감일 충돌: {details}",
+                source_block_id=first_source,
+                confidence=1.0,
             )
+        )
     return result

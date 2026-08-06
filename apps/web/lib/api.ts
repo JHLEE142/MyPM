@@ -3,6 +3,8 @@ import type {
   AnalysisStatus,
   ApprovalRequest,
   Dashboard,
+  Milestone,
+  Pace,
   Project,
   ProjectCreate,
   ProjectPatch,
@@ -95,6 +97,8 @@ export const api = {
       request<Task>(`/api/tasks/${taskId}/complete`, { method: "POST", body: json(payload ?? {}) }),
     block: (taskId: number, reason: string) =>
       request<Task>(`/api/tasks/${taskId}/block`, { method: "POST", body: json({ reason }) }),
+    reopen: (taskId: number) =>
+      request<Task>(`/api/tasks/${taskId}/reopen`, { method: "POST", body: json({}) }),
   },
   schedule: {
     get: (projectId: number) => request<ScheduleVersion>(`/api/projects/${projectId}/schedule`),
@@ -115,7 +119,11 @@ export const api = {
         `/api/projects/${projectId}/schedule/versions/compare?from_version=${fromVersion}&to_version=${toVersion}`,
       ),
   },
-  dashboard: (projectId: number) => request<Dashboard>(`/api/projects/${projectId}/dashboard`),
+  milestones: (projectId: number) => request<Milestone[]>(`/api/projects/${projectId}/milestones`),
+  dashboard: (projectId: number, asOf: string) =>
+    request<Dashboard>(`/api/projects/${projectId}/dashboard?as_of=${encodeURIComponent(asOf)}`),
+  pace: (projectId: number, asOf: string) =>
+    request<Pace>(`/api/projects/${projectId}/pace?as_of=${encodeURIComponent(asOf)}`),
 };
 
 export function errorMessage(error: unknown): string {

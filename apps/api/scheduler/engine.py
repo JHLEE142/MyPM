@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, timedelta
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
-from .capacity import effective_daily_capacity, is_working_day, next_working_day
+from .capacity import effective_daily_capacity, next_working_day
 from .dependencies import topological_sort
 
 
@@ -27,6 +27,8 @@ class ScheduleEngine:
         buffer_ratio: float,
         excluded_dates: Iterable[date] = (),
         reserved_placements: Iterable[dict[str, Any]] = (),
+        satisfied_dependency_ends: Mapping[int, date] | None = None,
+        unsatisfied_dependency_ids: Iterable[int] = (),
     ) -> dict[str, Any]:
         task_list = list(tasks)
         excluded = set(excluded_dates)
@@ -55,7 +57,8 @@ class ScheduleEngine:
         ordered_ids = topological_sort(by_id, edges, order_key)
         usage: dict[date, float] = defaultdict(float)
         placements: list[dict[str, Any]] = []
-        task_end: dict[int, date] = {}
+        task_end: dict[int, date] = dict(satisfied_dependency_ends or {})
+        explicitly_unsatisfied = set(unsatisfied_dependency_ids)
         for reserved in reserved_placements:
             day = reserved["date"]
             if isinstance(day, str):
@@ -64,36 +67,58 @@ class ScheduleEngine:
             usage[day] += hours
             item = {**reserved, "date": day.isoformat(), "hours": round(hours, 6), "protected": True}
             placements.append(item)
-            task_end[int(reserved["task_id"])] = max(day, task_end.get(int(reserved["task_id"]), day))
+            reserved_task_id = int(reserved["task_id"])
+            if reserved.get("satisfies_dependencies", True) and reserved_task_id not in (satisfied_dependency_ends or {}):
+                task_end[reserved_task_id] = max(day, task_end.get(reserved_task_id, day))
 
         unscheduled: list[dict[str, Any]] = []
         for task_id in ordered_ids:
             task = by_id[task_id]
-            hours_left = float(_get(task, "estimated_hours", 0) or 0)
+            original_hours = float(_get(task, "original_estimated_hours", _get(task, "estimated_hours", 0)) or 0)
+            remaining_hours = float(_get(task, "remaining_estimated_hours", _get(task, "estimated_hours", 0)) or 0)
+            hours_left = remaining_hours
             deps = dependencies_by_task.get(task_id, [])
             earliest = start_date
             if deps:
-                dependency_ends = [task_end[dep] for dep in deps if dep in task_end]
-                if len(dependency_ends) != len(deps):
+                dependency_ends: list[date] = []
+                missing_dependency = False
+                for dependency_id in deps:
+                    if dependency_id in explicitly_unsatisfied:
+                        missing_dependency = True
+                    elif dependency_id in task_end:
+                        dependency_ends.append(task_end[dependency_id])
+                    elif dependency_id not in by_id:
+                        dependency_ends.append(start_date - timedelta(days=1))
+                    else:
+                        missing_dependency = True
+                if missing_dependency:
                     unscheduled.append({"task_id": task_id, "remaining_hours": hours_left, "reason": "dependency_unscheduled"})
                     continue
                 earliest = max(dependency_ends) + timedelta(days=1)
             cursor = next_working_day(max(start_date, earliest), work_days, excluded)
             due = _get(task, "due_date")
             limit = min(target_date, due) if due else target_date
+            if hours_left <= 1e-9:
+                task_end[task_id] = cursor
+                continue
             task_placements: list[dict[str, Any]] = []
             while hours_left > 1e-9 and cursor <= limit:
                 available = max(0.0, capacity - usage[cursor])
                 if available > 1e-9:
                     assigned = min(hours_left, available)
-                    task_placements.append(
-                        {"task_id": task_id, "date": cursor.isoformat(), "hours": round(assigned, 6), "protected": False}
-                    )
+                    task_placements.append({
+                        "task_id": task_id,
+                        "date": cursor.isoformat(),
+                        "hours": round(assigned, 6),
+                        "protected": False,
+                        "original_estimated_hours": round(original_hours, 6),
+                        "remaining_estimated_hours": round(remaining_hours, 6),
+                    })
                     usage[cursor] += assigned
                     hours_left -= assigned
                 cursor = next_working_day(cursor, work_days, excluded, include=False)
             placements.extend(task_placements)
-            if task_placements:
+            if task_placements and hours_left <= 1e-9:
                 task_end[task_id] = date.fromisoformat(task_placements[-1]["date"])
             if hours_left > 1e-9:
                 unscheduled.append(
@@ -115,6 +140,7 @@ class ScheduleEngine:
         if any(item["assigned_hours"] > capacity + 1e-9 for item in daily_loads):
             warnings.append("하루 가용시간 초과")
         return {
+            "task_ids": sorted(by_id),
             "placements": placements,
             "daily_loads": daily_loads,
             "effective_daily_capacity_hours": capacity,

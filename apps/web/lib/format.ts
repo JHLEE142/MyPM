@@ -28,7 +28,7 @@ export const paceLabel: Record<string, string> = {
 };
 
 export const paceTone = (status: PaceStatus) => {
-  if (status === "on_track" || status === "normal") return "badge-success";
+  if (status === "normal") return "badge-success";
   if (status === "warning") return "badge-warning";
   if (status === "risk") return "badge-danger";
   return "badge-critical";

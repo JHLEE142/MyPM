@@ -9,7 +9,8 @@ import { EmptyState, ErrorState } from "./feedback";
 type Selection = { kind: "task"; data: Task } | { kind: "fact"; data: ProjectFact };
 const categories = [
   { id: "goal", label: "목표" }, { id: "deliverable", label: "산출물" }, { id: "deadline", label: "마일스톤" },
-  { id: "task", label: "업무" }, { id: "risk", label: "위험" }, { id: "open_question", label: "미확정 질문" }, { id: "constraint", label: "충돌" },
+  { id: "requirement", label: "요구사항" }, { id: "task", label: "업무" }, { id: "risk", label: "위험" },
+  { id: "open_question", label: "미확정 질문" }, { id: "constraint", label: "충돌" },
 ] as const;
 
 export function ReviewPanel({ projectId, review, sources, onChange }: { projectId: number; review: AnalysisReview; sources: SourceDocument[]; onChange: () => Promise<void> | void }) {
@@ -86,7 +87,7 @@ export function ReviewPanel({ projectId, review, sources, onChange }: { projectI
                 <div className="mt-6 rounded-xl border border-[#dfe7e4] bg-[#f7f9f8] p-4"><p className="text-[11px] font-black uppercase tracking-[.1em] text-[#71817c]">원문 근거</p>{block ? <><blockquote className="mt-3 border-l-2 border-[#57907f] pl-3 text-sm leading-6 text-[#42534e]">{block.content}</blockquote><div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#788681]"><span>문서: <b>{source?.file_name ?? `문서 #${block.source_document_id}`}</b></span><span>위치: <b>{block.page_number ? `${block.page_number}쪽` : block.sheet_name ? `${block.sheet_name} 시트` : block.section_title || `${block.block_order + 1}번째 블록`}</b></span></div></> : <p className="mt-3 text-sm text-[#788681]">연결된 원문 블록이 없습니다.</p>}</div>
                 {category === "constraint" && <div className="warning-banner mt-4 text-sm"><b>충돌 항목입니다.</b> 이 내용을 기준으로 채택할지, 프로젝트에서 제외할지 선택하세요.</div>}
               </div>
-              {!edit && <div className="mt-5 flex flex-wrap gap-2 border-t border-[#e5ebe8] pt-4"><button type="button" className="btn btn-primary" disabled={busy} onClick={() => void decide("approve")}>{category === "constraint" ? "이 내용 채택" : "승인"}</button><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setEdit(true)}>수정</button><button type="button" className="btn btn-danger" disabled={busy} onClick={() => void decide("reject")}>{category === "constraint" ? "이 내용 제외" : "거절"}</button></div>}
+              {!edit && <div className="mt-5 flex flex-wrap gap-2 border-t border-[#e5ebe8] pt-4"><button type="button" className="btn btn-primary" disabled={busy} onClick={() => void decide("approve")}>{category === "constraint" ? "이 내용 채택" : "승인"}</button><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setEdit(true)}>수정</button><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void decide("hold")}>보류</button><button type="button" className="btn btn-danger" disabled={busy} onClick={() => void decide("reject")}>{category === "constraint" ? "이 내용 제외" : "거절"}</button></div>}
             </div>
           )}
         </div>

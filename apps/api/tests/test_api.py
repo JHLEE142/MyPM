@@ -95,6 +95,7 @@ def test_mock_analysis_review_approve_schedule_e2e(client, project_payload):
     review = client.get(f"/api/projects/{project['id']}/analysis/review").json()
     assert len(review["tasks"]) == 2
     assert all(item["status"] == "pending_review" for item in review["tasks"])
+    assert all(item["source_links"] for item in review["tasks"])
     decisions = {
         "tasks": [{"id": item["id"], "action": "approve", "updates": {}} for item in review["tasks"]],
         "facts": [{"id": item["id"], "action": "approve", "updates": {}} for item in review["facts"]],

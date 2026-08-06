@@ -23,6 +23,7 @@ export function TaskManager({ projectId, tasks, onChange }: { projectId: number;
       estimated_hours: Number(formData.get("estimated_hours")),
       priority: String(formData.get("priority")) as TaskPriority,
       due_date: String(formData.get("due_date") || "") || null,
+      locked: formData.get("locked") === "on",
     };
     try { await api.tasks.create(projectId, payload); setShowForm(false); await onChange(); }
     catch (e) { setError(errorMessage(e)); }
@@ -40,6 +41,7 @@ export function TaskManager({ projectId, tasks, onChange }: { projectId: number;
         status: String(formData.get("status")) as TaskStatus,
         progress_percent: Number(formData.get("progress_percent")),
         due_date: String(formData.get("due_date") || "") || null,
+        locked: formData.get("locked") === "on",
       });
       setEditing(null); await onChange();
     } catch (e) { setError(errorMessage(e)); }
@@ -70,6 +72,7 @@ export function TaskManager({ projectId, tasks, onChange }: { projectId: number;
           <label><span className="label">예상 공수</span><input className="field" name="estimated_hours" type="number" min="0" step="0.5" defaultValue="1" required /></label>
           <label><span className="label">우선순위</span><select className="field" name="priority" defaultValue="medium">{priorityOptions.map((p) => <option key={p} value={p}>{priorityLabel[p]}</option>)}</select></label>
           <label><span className="label">기한</span><input className="field" name="due_date" type="date" /></label>
+          <label className="flex items-end gap-2 pb-3 text-sm font-bold"><input name="locked" type="checkbox" className="size-4 accent-[#166a58]" /> 일정 잠금</label>
           <div className="flex items-end"><button disabled={busyId === "new"} className="btn btn-primary w-full">{busyId === "new" ? "추가 중…" : "추가"}</button></div>
           <label className="md:col-span-6"><span className="label">설명</span><textarea className="field min-h-20" name="description" placeholder="완료 기준이나 참고 사항" /></label>
         </form>
@@ -85,6 +88,7 @@ export function TaskManager({ projectId, tasks, onChange }: { projectId: number;
               <label><span className="label">우선순위</span><select className="field" name="priority" defaultValue={task.priority}>{priorityOptions.map((p) => <option key={p} value={p}>{priorityLabel[p]}</option>)}</select></label>
               <label><span className="label">상태</span><select className="field" name="status" defaultValue={task.status}>{statusOptions.map((s) => <option key={s} value={s}>{taskStatusLabel[s] ?? s}</option>)}</select></label>
               <label><span className="label">기한</span><input className="field" name="due_date" type="date" defaultValue={task.due_date ?? ""} /></label>
+              <label className="flex items-end gap-2 pb-3 text-sm font-bold"><input name="locked" type="checkbox" defaultChecked={task.locked} className="size-4 accent-[#166a58]" /> 일정 잠금</label>
               <label className="md:col-span-4"><span className="label">설명</span><textarea className="field" name="description" defaultValue={task.description ?? ""} /></label>
               <label><span className="label">진행률 (%)</span><input className="field" name="progress_percent" type="number" min="0" max="100" defaultValue={task.progress_percent} /></label>
               <div className="flex items-end gap-2"><button disabled={busyId === task.id} className="btn btn-primary flex-1">저장</button><button type="button" className="btn btn-secondary" onClick={() => setEditing(null)}>취소</button></div>

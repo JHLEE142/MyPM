@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dashboard, Project, Task } from "@pacepm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { api, errorMessage } from "@/lib/api";
-import { formatDate, formatHours, paceLabel, paceTone } from "@/lib/format";
+import { formatDate, formatHours, isoToday, paceLabel, paceTone } from "@/lib/format";
 
 interface ProjectRow { project: Project; dashboard: Dashboard | null; tasks: Task[]; }
 
@@ -21,7 +21,7 @@ export default function ProjectsPage() {
       const projects = await api.projects.list();
       const detail = await Promise.all(projects.map(async (project) => {
         const [dashboard, tasks] = await Promise.all([
-          api.dashboard(project.id).catch(() => null),
+          api.dashboard(project.id, isoToday()).catch(() => null),
           api.tasks.list(project.id).catch(() => []),
         ]);
         return { project, dashboard, tasks };
@@ -86,7 +86,7 @@ function ProjectListRow({ row, deleting, onDelete }: { row: ProjectRow; deleting
   const { project, dashboard, tasks } = row;
   const pace = dashboard?.pace;
   const nextTask = tasks
-    .filter((task) => task.status !== "completed" && (task.due_date || task.planned_end_date))
+    .filter((task) => ["approved", "scheduled", "in_progress"].includes(task.status) && (task.due_date || task.planned_end_date))
     .sort((a, b) => String(a.due_date || a.planned_end_date).localeCompare(String(b.due_date || b.planned_end_date)))[0];
   const actual = pace?.actual_progress_percent ?? 0;
   const planned = pace?.planned_progress_percent ?? 0;

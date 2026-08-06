@@ -3,7 +3,29 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+ProjectStatus = Literal["active", "paused", "completed"]
+TaskStatus = Literal[
+    "extracted",
+    "pending_review",
+    "approved",
+    "scheduled",
+    "in_progress",
+    "completed",
+    "on_hold",
+    "blocked",
+    "rejected",
+]
+DUE_DATE_MIN = date(1970, 1, 1)
+DUE_DATE_MAX = date(2100, 12, 31)
+
+
+def _due_date_in_range(value: date | None) -> date | None:
+    if value is not None and not DUE_DATE_MIN <= value <= DUE_DATE_MAX:
+        raise ValueError("due_date must be between 1970-01-01 and 2100-12-31")
+    return value
 
 
 class ORMModel(BaseModel):
@@ -19,7 +41,7 @@ class ProjectBase(BaseModel):
     daily_capacity_hours: float = Field(default=8.0, gt=0)
     buffer_ratio: float = Field(default=0.2, ge=0, lt=1)
     excluded_dates: list[date] = Field(default_factory=list)
-    status: str = "active"
+    status: ProjectStatus = "active"
 
     @model_validator(mode="after")
     def validate_dates_and_days(self):
@@ -44,7 +66,7 @@ class ProjectPatch(BaseModel):
     daily_capacity_hours: float | None = Field(default=None, gt=0)
     buffer_ratio: float | None = Field(default=None, ge=0, lt=1)
     excluded_dates: list[date] | None = None
-    status: str | None = None
+    status: ProjectStatus | None = None
 
 
 class ProjectOut(ORMModel):
@@ -57,7 +79,7 @@ class ProjectOut(ORMModel):
     daily_capacity_hours: float
     buffer_ratio: float
     excluded_dates: list[str]
-    status: str
+    status: ProjectStatus
     created_at: datetime
     updated_at: datetime
 
@@ -79,7 +101,6 @@ class SourceDocumentOut(ORMModel):
     project_id: int
     file_name: str
     file_type: str
-    storage_path: str | None
     extracted_text: str | None
     analysis_status: str
     error_message: str | None
@@ -88,13 +109,15 @@ class SourceDocumentOut(ORMModel):
 
 
 class TaskCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str = Field(min_length=1, max_length=500)
     description: str | None = None
     milestone_id: int | None = None
     parent_task_id: int | None = None
-    status: str = "approved"
+    status: TaskStatus = "approved"
     priority: Literal["critical", "high", "medium", "low"] = "medium"
-    estimated_hours: float = Field(default=1.0, ge=0)
+    estimated_hours: float = Field(default=1.0, ge=0, le=10000)
     actual_hours: float = Field(default=0.0, ge=0)
     progress_percent: float = Field(default=0.0, ge=0, le=100)
     planned_start_date: date | None = None
@@ -103,20 +126,22 @@ class TaskCreate(BaseModel):
     actual_end_date: date | None = None
     due_date: date | None = None
     locked: bool = False
-    ai_generated: bool = False
-    confidence: float | None = Field(default=None, ge=0, le=1)
     dependency_ids: list[int] = Field(default_factory=list)
     source_block_ids: list[int] = Field(default_factory=list)
 
+    _validate_due_date = field_validator("due_date")(_due_date_in_range)
+
 
 class TaskPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
     milestone_id: int | None = None
     parent_task_id: int | None = None
-    status: str | None = None
+    status: TaskStatus | None = None
     priority: Literal["critical", "high", "medium", "low"] | None = None
-    estimated_hours: float | None = Field(default=None, ge=0)
+    estimated_hours: float | None = Field(default=None, ge=0, le=10000)
     actual_hours: float | None = Field(default=None, ge=0)
     progress_percent: float | None = Field(default=None, ge=0, le=100)
     planned_start_date: date | None = None
@@ -126,6 +151,9 @@ class TaskPatch(BaseModel):
     due_date: date | None = None
     locked: bool | None = None
     dependency_ids: list[int] | None = None
+    source_block_ids: list[int] | None = None
+
+    _validate_due_date = field_validator("due_date")(_due_date_in_range)
 
 
 class DependencyOut(ORMModel):
@@ -147,7 +175,7 @@ class TaskOut(ORMModel):
     parent_task_id: int | None
     title: str
     description: str | None
-    status: str
+    status: TaskStatus
     priority: str
     estimated_hours: float
     actual_hours: float
@@ -197,3 +225,19 @@ class ApprovalRequest(BaseModel):
     tasks: list[ReviewDecision] = Field(default_factory=list)
     facts: list[ReviewDecision] = Field(default_factory=list)
 
+
+class FactReviewUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class MilestoneOut(ORMModel):
+    id: int
+    project_id: int
+    title: str
+    description: str | None
+    target_date: date | None
+    status: str
+    sort_order: int

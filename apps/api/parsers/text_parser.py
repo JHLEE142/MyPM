@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .archive_safety import MAX_DOCUMENT_BLOCKS
+
 
 def parse_text(text: str, *, markdown: bool = True) -> list[dict]:
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
@@ -21,6 +23,8 @@ def parse_text(text: str, *, markdown: bool = True) -> list[dict]:
         else:
             normalized.append(paragraph)
     for order, paragraph in enumerate(normalized):
+        if order >= MAX_DOCUMENT_BLOCKS:
+            raise ValueError("문서 블록 수 초과")
         lines = paragraph.splitlines()
         first = lines[0].strip()
         is_heading = bool(re.match(r"^#{1,6}\s+", first))

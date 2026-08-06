@@ -17,28 +17,32 @@ def find_cycle(nodes: Iterable[Hashable], edges: Iterable[tuple[Hashable, Hashab
         node_set.update((task, prerequisite))
         graph[task].append(prerequisite)
     state: dict[Hashable, int] = {}
-    stack: list[Hashable] = []
-
-    def visit(node: Hashable) -> list[Hashable] | None:
-        state[node] = 1
-        stack.append(node)
-        for neighbor in sorted(graph[node], key=str):
-            if state.get(neighbor, 0) == 0:
-                found = visit(neighbor)
-                if found:
-                    return found
-            elif state.get(neighbor) == 1:
-                index = stack.index(neighbor)
-                return stack[index:] + [neighbor]
-        stack.pop()
-        state[node] = 2
-        return None
-
     for node in sorted(node_set, key=str):
-        if state.get(node, 0) == 0:
-            found = visit(node)
-            if found:
-                return found
+        if state.get(node, 0) != 0:
+            continue
+        path: list[Hashable] = [node]
+        path_index: dict[Hashable, int] = {node: 0}
+        state[node] = 1
+        frames: list[tuple[Hashable, list[Hashable], int]] = [(node, sorted(graph[node], key=str), 0)]
+        while frames:
+            current, neighbors, index = frames[-1]
+            if index >= len(neighbors):
+                frames.pop()
+                state[current] = 2
+                path_index.pop(current, None)
+                path.pop()
+                continue
+            neighbor = neighbors[index]
+            frames[-1] = (current, neighbors, index + 1)
+            neighbor_state = state.get(neighbor, 0)
+            if neighbor_state == 0:
+                state[neighbor] = 1
+                path_index[neighbor] = len(path)
+                path.append(neighbor)
+                frames.append((neighbor, sorted(graph[neighbor], key=str), 0))
+            elif neighbor_state == 1:
+                start = path_index[neighbor]
+                return path[start:] + [neighbor]
     return None
 
 

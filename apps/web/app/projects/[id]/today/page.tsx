@@ -26,7 +26,7 @@ export default function TodayPage() {
     setError("");
     try {
       const [projectData, dashboardData, taskData] = await Promise.all([
-        api.projects.get(projectId), api.dashboard(projectId), api.tasks.list(projectId),
+        api.projects.get(projectId), api.dashboard(projectId, isoToday()), api.tasks.list(projectId),
       ]);
       setProject(projectData); setDashboard(dashboardData); setTasks(taskData);
       setProgress(Object.fromEntries(taskData.map((task) => [task.id, task.progress_percent])));
@@ -55,7 +55,7 @@ export default function TodayPage() {
     setBusyId(task.id); setError(""); setSaved("");
     try {
       if (checked) await api.tasks.complete(task.id, { note: notes[task.id]?.trim() || undefined, completed_date: isoToday() });
-      else await api.tasks.update(task.id, { status: "in_progress", progress_percent: 90, actual_end_date: null });
+      else await api.tasks.reopen(task.id);
       await load();
     } catch (e) { setError(errorMessage(e)); }
     finally { setBusyId(null); }
@@ -76,7 +76,7 @@ export default function TodayPage() {
       {error && <div className="mb-4"><ErrorState message={error} /></div>}
       {saved && <div className="success-box mb-4">{saved}</div>}
       <section className="mb-5 grid gap-3 sm:grid-cols-2">
-        <div className="panel p-5"><p className="text-xs font-bold text-[#71807b]">오늘 가용시간</p><p className="mt-2 text-2xl font-black">{formatHours(dashboard.today.available_hours)}</p><p className="mt-1 text-xs text-[#71807b]">버퍼 {Math.round(project.buffer_ratio * 100)}% 포함 설정</p></div>
+        <div className="panel p-5"><p className="text-xs font-bold text-[#71807b]">오늘 유효 가용시간</p><p className="mt-2 text-2xl font-black">{formatHours(dashboard.today.effective_daily_capacity_hours)}</p><p className="mt-1 text-xs text-[#71807b]">원 가용시간 {formatHours(dashboard.today.raw_daily_capacity_hours)} · 버퍼 {Math.round(project.buffer_ratio * 100)}%</p></div>
         <div className={`panel p-5 ${dashboard.today.over_capacity ? "border-[#e9bd73] bg-[#fffaf0]" : ""}`}><p className="text-xs font-bold text-[#71807b]">배정 합계</p><p className="mt-2 text-2xl font-black">{formatHours(dashboard.today.assigned_hours)}</p>{dashboard.today.over_capacity ? <p className="mt-1 font-black text-[#9a5809]">⚠ {formatHours(excess)} 초과 배정</p> : <p className="mt-1 text-xs font-bold text-[#247052]">가용시간 안에 배정되었습니다.</p>}</div>
       </section>
 

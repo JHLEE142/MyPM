@@ -1,5 +1,5 @@
 export type ProjectStatus = "active" | "paused" | "completed" | string;
-export type PaceStatus = "on_track" | "warning" | "risk" | "critical" | string;
+export type PaceStatus = "normal" | "warning" | "risk" | "critical";
 export type TaskPriority = "critical" | "high" | "medium" | "low";
 export type TaskStatus =
   | "extracted"
@@ -59,7 +59,6 @@ export interface SourceDocument {
   project_id: number;
   file_name: string;
   file_type: string;
-  storage_path: string | null;
   extracted_text: string | null;
   analysis_status: string;
   error_message: string | null;
@@ -129,8 +128,9 @@ export type TaskPatch = Partial<Omit<TaskCreate, "dependency_ids">> & {
 export interface Forecast {
   status: string;
   estimated_completion_date?: string | null;
-  working_days_used?: number;
-  average_daily_velocity?: number;
+  work_days_observed: number;
+  velocity_hours_per_day: number | null;
+  remaining_work_days?: number;
   remaining_hours: number;
   required_daily_hours: number | null;
   message?: string;
@@ -161,6 +161,8 @@ export interface Dashboard {
   pace: Pace;
   today: {
     available_hours: number;
+    raw_daily_capacity_hours: number;
+    effective_daily_capacity_hours: number;
     assigned_hours: number;
     over_capacity: boolean;
     excess_hours: number;
@@ -175,9 +177,12 @@ export interface Placement {
   date: string;
   hours: number;
   protected: boolean;
+  original_estimated_hours?: number;
+  remaining_estimated_hours?: number;
 }
 
 export interface ScheduleSnapshot {
+  task_ids: number[];
   placements: Placement[];
   daily_loads: Array<{
     date: string;
@@ -190,6 +195,17 @@ export interface ScheduleSnapshot {
   unscheduled: Array<{ task_id: number; remaining_hours: number; reason: string }>;
   warnings: string[];
   protected_task_ids?: number[];
+  deferred?: Array<{ task_id: number; reason: string }>;
+}
+
+export interface Milestone {
+  id: number;
+  project_id: number;
+  title: string;
+  description: string | null;
+  target_date: string | null;
+  status: string;
+  sort_order: number;
 }
 
 export interface ScheduleVersion {

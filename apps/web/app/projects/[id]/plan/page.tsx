@@ -9,7 +9,7 @@ import { ReviewPanel } from "@/components/review-panel";
 import { SchedulePanel } from "@/components/schedule-panel";
 import { TaskManager } from "@/components/task-manager";
 import { api, errorMessage } from "@/lib/api";
-import { formatDate, formatHours, paceLabel, paceTone } from "@/lib/format";
+import { formatDate, formatHours, isoToday, paceLabel, paceTone } from "@/lib/format";
 
 export default function PlanPage() {
   const params = useParams<{ id: string }>(); const projectId = Number(params.id);
@@ -27,7 +27,7 @@ export default function PlanPage() {
     if (initial) setLoading(true); setError("");
     try {
       const [projectData, dashboardData, taskData, sourceData, reviewData, scheduleData, versionData] = await Promise.all([
-        api.projects.get(projectId), api.dashboard(projectId), api.tasks.list(projectId), api.sources.list(projectId),
+        api.projects.get(projectId), api.dashboard(projectId, isoToday()), api.tasks.list(projectId), api.sources.list(projectId),
         api.analysis.review(projectId), api.schedule.get(projectId), api.schedule.versions(projectId),
       ]);
       setProject(projectData); setDashboard(dashboardData); setTasks(taskData); setSources(sourceData);
@@ -43,7 +43,7 @@ export default function PlanPage() {
   const weekStats = useMemo(() => {
     const now = new Date(); const start = new Date(now); start.setDate(now.getDate() - ((now.getDay() + 6) % 7)); start.setHours(0, 0, 0, 0);
     const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
-    const due = tasks.filter((task) => { if (!task.planned_end_date) return false; const date = new Date(`${task.planned_end_date}T00:00:00`); return date >= start && date <= end; });
+    const due = tasks.filter((task) => { if (!["approved", "scheduled", "in_progress", "completed"].includes(task.status) || !task.planned_end_date) return false; const date = new Date(`${task.planned_end_date}T00:00:00`); return date >= start && date <= end; });
     return { count: due.length, completed: due.filter((task) => task.status === "completed").length };
   }, [tasks]);
 

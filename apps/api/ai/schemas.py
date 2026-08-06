@@ -25,12 +25,18 @@ class TaskCandidate(BaseModel):
     description: str = ""
     milestone: str | None = None
     priority: str = "medium"
-    estimated_hours: float = Field(default=1.0, ge=0)
+    estimated_hours: float = Field(default=1.0, ge=0, le=10000)
     dependencies: list[str] = Field(default_factory=list)
     acceptance_criteria: list[str] = Field(default_factory=list)
     source_references: list[SourceReference] = Field(min_length=1)
     confidence: float = Field(default=0.7, ge=0, le=1)
     due_date: date | None = None
+
+    @model_validator(mode="after")
+    def due_date_in_range(self):
+        if self.due_date is not None and not date(1970, 1, 1) <= self.due_date <= date(2100, 12, 31):
+            raise ValueError("due_date must be between 1970-01-01 and 2100-12-31")
+        return self
 
 
 class DocumentAnalysis(BaseModel):
