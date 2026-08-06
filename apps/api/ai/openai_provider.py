@@ -29,7 +29,7 @@ class OpenAiApiProvider(AnalysisProvider):
     def available(self) -> bool:
         return bool(self.api_key)
 
-    def _complete(self, prompt: str) -> str:
+    def _complete(self, prompt: str, max_tokens: int = 4096) -> str:
         if not self.api_key:
             raise ProviderError("OPENAI_API_KEY is not configured")
         try:
@@ -40,7 +40,7 @@ class OpenAiApiProvider(AnalysisProvider):
                     "model": self.model,
                     "messages": [{"role": "user", "content": prompt}],
                     "response_format": {"type": "json_object"},
-                    "max_tokens": 4096,
+                    "max_tokens": max_tokens,
                 },
                 timeout=120,
             )
@@ -57,19 +57,61 @@ class OpenAiApiProvider(AnalysisProvider):
             raise ProviderError("OpenAI API returned empty content")
         return content
 
+    def _complete_structured(self, prompt: str, schema: type, max_tokens: int = 4096):
+        """구조화 출력 호출. 검증 실패 시 오류 내용을 담아 1회 재시도한다."""
+        last_error: str | None = None
+        for attempt in range(2):
+            attempt_prompt = prompt
+            if last_error is not None:
+                attempt_prompt = (
+                    f"{prompt}\n\n직전 응답이 스키마 검증에 실패했다. 오류: {last_error[:1500]}\n"
+                    "스키마를 정확히 지켜 완전한 JSON 객체 하나만 다시 반환하라."
+                )
+            content = self._complete(attempt_prompt, max_tokens=max_tokens)
+            try:
+                return parse_structured_json(content, schema)
+            except ProviderError:
+                last_error = _validation_detail(content, schema)
+                logger.warning(
+                    "structured output invalid (schema=%s, attempt=%d, content_len=%d): %s",
+                    schema.__name__, attempt + 1, len(content), (last_error or "")[:300],
+                )
+        raise ProviderError("provider returned invalid structured output")
+
     def analyze_document(self, source_id: int, blocks: list[dict[str, Any]]) -> DocumentAnalysis:
-        return parse_structured_json(self._complete(build_document_prompt(source_id, blocks)), DocumentAnalysis)
+        return self._complete_structured(build_document_prompt(source_id, blocks), DocumentAnalysis, max_tokens=8000)
 
     def chat_draft(self, fields: DraftFields, conversation: list[dict[str, str]]) -> DraftChatResult:
-        return parse_structured_json(self._complete(build_draft_prompt(fields, conversation)), DraftChatResult)
+        return self._complete_structured(build_draft_prompt(fields, conversation), DraftChatResult)
 
-    def generate_hierarchical_tasks(self, analysis: ProjectAnalysis) -> HierarchicalTaskSet:
+    def generate_hierarchical_tasks(
+        self, analysis: ProjectAnalysis, context: dict | None = None
+    ) -> HierarchicalTaskSet:
         from .task_generator import build_hierarchical_task_prompt
 
-        return parse_structured_json(
-            self._complete(build_hierarchical_task_prompt(analysis)),
-            HierarchicalTaskSet,
+        return self._complete_structured(
+            build_hierarchical_task_prompt(analysis, context), HierarchicalTaskSet, max_tokens=16000
         )
+
+
+def _validation_detail(content: str, schema: type) -> str:
+    """검증 실패 원인을 재시도 프롬프트에 넣을 수 있는 짧은 설명으로 만든다."""
+    import json
+
+    from pydantic import ValidationError
+
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        return f"JSON 파싱 실패 (line {exc.lineno}, col {exc.colno}): {exc.msg}"
+    try:
+        schema.model_validate(data)
+    except ValidationError as exc:
+        return "; ".join(
+            f"{'/'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors(include_url=False, include_context=False)[:10]
+        )
+    return "구조화 출력 검증 실패"
 
 
 MAX_CAPTION_IMAGE_BYTES = 10 * 1024 * 1024

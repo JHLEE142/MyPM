@@ -103,13 +103,15 @@ class AiRouter(AnalysisProvider):
             lambda provider: provider.chat_draft(fields, conversation),
         )
 
-    def generate_hierarchical_tasks(self, analysis: ProjectAnalysis) -> HierarchicalTaskSet:
+    def generate_hierarchical_tasks(
+        self, analysis: ProjectAnalysis, context: dict | None = None
+    ) -> HierarchicalTaskSet:
         input_chars = len(analysis.model_dump_json())
         return self._call(
             "task_generation",
             input_chars,
             self.analysis_order,
-            lambda provider: provider.generate_hierarchical_tasks(analysis),
+            lambda provider: provider.generate_hierarchical_tasks(analysis, context),
         )
 
     def _call(

@@ -107,6 +107,7 @@ class WeeklyTaskItem(BaseModel):
 
     title: str = Field(min_length=1)
     description: str = ""
+    target_week_start: date | None = None  # 그 주 월요일 — 시기 배치 앵커
     daily: list[DailyTaskItem] = Field(min_length=1, max_length=15)
 
 

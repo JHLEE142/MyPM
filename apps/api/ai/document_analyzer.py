@@ -78,10 +78,12 @@ class AnalysisProvider(ABC):
     def chat_draft(self, fields: DraftFields, conversation: list[dict[str, str]]) -> DraftChatResult:
         raise NotImplementedError
 
-    def generate_hierarchical_tasks(self, analysis: ProjectAnalysis) -> HierarchicalTaskSet:
+    def generate_hierarchical_tasks(
+        self, analysis: ProjectAnalysis, context: dict | None = None
+    ) -> HierarchicalTaskSet:
         from .task_generator import generate_tasks
 
-        return generate_tasks(analysis)
+        return generate_tasks(analysis, context)
 
 
 class MockProvider(AnalysisProvider):
@@ -386,14 +388,16 @@ class AnthropicProvider(AnalysisProvider):
             raise ValueError("Anthropic structured output was empty")
         return result if isinstance(result, DraftChatResult) else DraftChatResult.model_validate(result)
 
-    def generate_hierarchical_tasks(self, analysis: ProjectAnalysis) -> HierarchicalTaskSet:
+    def generate_hierarchical_tasks(
+        self, analysis: ProjectAnalysis, context: dict | None = None
+    ) -> HierarchicalTaskSet:
         from .task_generator import build_hierarchical_task_prompt
 
         response = self.client.messages.parse(
             model="claude-opus-5",
             max_tokens=8192,
             system=SYSTEM_SAFETY_PROMPT,
-            messages=[{"role": "user", "content": build_hierarchical_task_prompt(analysis)}],
+            messages=[{"role": "user", "content": build_hierarchical_task_prompt(analysis, context)}],
             output_format=HierarchicalTaskSet,
         )
         result = getattr(response, "parsed_output", None)

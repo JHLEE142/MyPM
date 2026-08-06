@@ -23,12 +23,35 @@ MAX_MONTHLY = 12
 MAX_DAILY_TOTAL = MAX_DAILY_PER_WEEK * MAX_WEEKLY_PER_MONTH * MAX_MONTHLY
 
 
-def build_hierarchical_task_prompt(analysis: ProjectAnalysis) -> str:
+def build_hierarchical_task_prompt(analysis: ProjectAnalysis, context: dict | None = None) -> str:
+    context_line = ""
+    if context:
+        context_line = (
+            f"컨텍스트: 오늘은 {context.get('today')}이고, 프로젝트 '{context.get('project_name')}'의 기간은 "
+            f"{context.get('start_date')} ~ {context.get('target_date')}이다. "
+            "모든 시기(월·주차·날짜)는 이 기간 안에서 배치하라. "
+            f"오늘({context.get('today')}) 이전 날짜의 due_date나 이미 지난 주차는 절대 만들지 마라. "
+            "첫 주차는 오늘이 속한 주부터 시작하라.\n"
+        )
     return (
-        "프로젝트 분석 결과를 실행 가능한 3단계 업무 트리로 변환하라. "
+        context_line
+        + "프로젝트 분석 결과를 실행 가능한 3단계 업무 트리로 변환하라. "
         "먼저 월간 업무를 정하고, 각 월간 업무에 맞춰 필요한 주간 업무를 뽑고, "
-        "각 주간 업무를 위한 일간 업무를 만들어라. "
+        "각 주간 업무를 위한 일간 업무를 만들어라.\n"
+        "- 월간 업무: 프로젝트 시작월부터 목표월까지 모든 달력 월을 하나씩 커버하고 target_month(YYYY-MM)를 반드시 지정하라. "
+        "제목은 '8월: 자료 요청·파일럿 범위 확정'처럼 그 달의 핵심 목표를 담아라. "
+        "준비 단계뿐 아니라 구축·견적, 오픈, 오픈 이후 운영·개선(오류 답변 수정, 미답변 질문 반영, KPI 리포트) 단계까지 나눠라.\n"
+        "- 주간 업무: 각 월간 아래 2개 이상, target_week_start(그 주 월요일 날짜)를 지정하고, 제목에 주차와 목표를 담아라 "
+        "(예: '8월 2주차: 자료 요청 리스트 확정과 미팅 일정 잡기'). "
+        "자료 요청 발송, 회신 취합, 파일럿 범위 확정, 견적안 작성, 주간 진행 리포트처럼 실제 주 단위 산출물이 있어야 한다.\n"
+        "- 일간 업무: 각 주간 아래 최소 3개, 최대 8개의 구체적 실행 항목으로 만들고, due_date를 해당 주 안의 날짜로 지정하라. "
+        "매주 반복되는 점검 업무(예: 슬랙·노션 미확인 질문 확인, 요청 자료 회신 체크, 리스크성 질문 분류)는 "
+        "해당하는 모든 주차의 일간 업무로 반복해서 넣어라. "
+        "회의록·문서의 결정사항, 보류사항, 요청 자료 목록, 리스크 대응(예: 판례·하자 책임 단정·분쟁성 민원 분류), "
+        "반복 점검 업무(예: 회신 현황·진행상황·누락 데이터 일일 확인), 보고·리포트 작성도 빠짐없이 업무로 만들어라. "
+        "문서에 근거가 있는 실행 항목을 요약해 버리지 말고 개별 업무로 나눠라.\n"
         "일간 업무에만 estimated_hours와 source_references를 부여하라. "
+        "source_references의 source_id와 block_id는 아래 PROJECT ANALYSIS DATA에 실제로 존재하는 정수 값만 사용하라. "
         "모든 title과 description은 반드시 한국어로 작성하라. "
         "원문이 영어이거나 다른 언어여도 내용을 한국어로 요약·번역하라. "
         "문서에 없는 사실이나 출처는 만들지 말고 JSON만 반환하라.\n\n"
@@ -39,7 +62,7 @@ def build_hierarchical_task_prompt(analysis: ProjectAnalysis) -> str:
     )
 
 
-def generate_tasks(analysis: ProjectAnalysis) -> HierarchicalTaskSet:
+def generate_tasks(analysis: ProjectAnalysis, context: dict | None = None) -> HierarchicalTaskSet:
     """Mock/fallback path: deterministically arrange extracted candidates into three levels."""
     tasks = _validated_candidates(analysis)
     if not tasks:

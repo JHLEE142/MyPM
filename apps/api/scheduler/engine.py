@@ -96,6 +96,11 @@ class ScheduleEngine:
                     unscheduled.append({"task_id": task_id, "remaining_hours": hours_left, "reason": "dependency_unscheduled"})
                     continue
                 earliest = max(dependency_ends) + timedelta(days=1)
+            not_before = _get(task, "not_before")
+            if not_before is not None:
+                if isinstance(not_before, str):
+                    not_before = date.fromisoformat(not_before)
+                earliest = max(earliest, not_before)
             cursor = next_working_day(max(start_date, earliest), work_days, excluded)
             due = _get(task, "due_date")
             limit = min(target_date, due) if due else target_date

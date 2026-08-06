@@ -6,7 +6,7 @@ import os
 import re
 import threading
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -107,7 +107,7 @@ def _schedule_task_value(task: Task, *, remaining_only: bool = False) -> dict[st
     remaining = task.estimated_hours
     if remaining_only and task.status == "in_progress":
         remaining = task.estimated_hours * (1 - task.progress_percent / 100)
-    return {
+    value = {
         "id": task.id,
         "priority": task.priority,
         "due_date": task.due_date,
@@ -117,6 +117,10 @@ def _schedule_task_value(task: Task, *, remaining_only: bool = False) -> dict[st
         "sort_order": task.sort_order,
         "dependency_ids": [dependency.depends_on_task_id for dependency in task.dependencies],
     }
+    # 계층(일간) 업무는 자기 주간 창 [due-6일, due] 안에서만 배치해 시기별로 분산시킨다
+    if task.cadence == "daily" and task.due_date is not None:
+        value["not_before"] = task.due_date - timedelta(days=6)
+    return value
 
 
 def _save_schedule_version(
@@ -429,19 +433,44 @@ def run_analysis(run_id: int, project_id: int) -> None:
             analyses.append(provider.analyze_document(source.id, blocks))
         run.model_provider = getattr(provider, "last_provider_name", None) or provider.name
         merged = merge_project_analyses(analyses)
+        project = db.get(Project, project_id)
+        generation_context = {
+            "today": date.today().isoformat(),
+            "project_name": project.name if project else "",
+            "start_date": project.start_date.isoformat() if project else "",
+            "target_date": project.target_date.isoformat() if project else "",
+        }
         generate_hierarchy = getattr(provider, "generate_hierarchical_tasks", None)
-        generated = generate_hierarchy(merged) if callable(generate_hierarchy) else generate_tasks(merged)
+        generated = (
+            generate_hierarchy(merged, generation_context)
+            if callable(generate_hierarchy)
+            else generate_tasks(merged, generation_context)
+        )
 
         referenced_blocks: list[int] = []
         for field in FACT_FIELD_MAP:
             referenced_blocks.extend(item.source_block_id for item in getattr(merged, field))
+        # LLM이 만들어낸 무효 참조는 실행 전체를 실패시키지 않고 제거한다.
+        # 참조가 모두 무효인 업무는 첫 유효 블록을 대체 출처로 달아 provenance를 유지한다.
+        from ai.schemas import SourceReference
+
+        fallback_ref = min(valid_refs) if valid_refs else None
+        dropped_refs = 0
         for monthly_item in generated.monthly:
             for weekly_item in monthly_item.weekly:
                 for daily_item in weekly_item.daily:
-                    for reference in daily_item.source_references:
-                        if (reference.source_id, reference.block_id) not in valid_refs:
-                            raise ValueError(f"존재하지 않는 source_block 참조: {reference.source_id}/{reference.block_id}")
-                        referenced_blocks.append(reference.block_id)
+                    kept = [
+                        reference
+                        for reference in daily_item.source_references
+                        if (reference.source_id, reference.block_id) in valid_refs
+                    ]
+                    dropped_refs += len(daily_item.source_references) - len(kept)
+                    if not kept and fallback_ref is not None:
+                        kept = [SourceReference(source_id=fallback_ref[0], block_id=fallback_ref[1])]
+                    daily_item.source_references = kept
+                    referenced_blocks.extend(reference.block_id for reference in kept)
+        if dropped_refs:
+            logger.warning("무효 source_block 참조 %d건을 제거했습니다", dropped_refs)
         valid_block_ids = {block_id for _, block_id in valid_refs}
         if any(block_id not in valid_block_ids for block_id in referenced_blocks):
             raise ValueError("존재하지 않는 source_block_id가 포함되었습니다")
@@ -493,6 +522,7 @@ def run_analysis(run_id: int, project_id: int) -> None:
         title_to_task: dict[str, Task] = {}
         generated_status = "pending_review" if review_gate_enabled() else "approved"
         priority_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        analysis_today = date.today()
 
         for monthly_item in generated.monthly:
             daily_items = [daily for weekly in monthly_item.weekly for daily in weekly.daily]
@@ -546,8 +576,24 @@ def run_analysis(run_id: int, project_id: int) -> None:
             )
 
             for weekly_item in monthly_item.weekly:
+                # 주차 앵커가 있으면 날짜 없는 일간 업무를 그 주로 귀속시킨다 (시기 배치)
+                if weekly_item.target_week_start is not None:
+                    this_monday = analysis_today - timedelta(days=analysis_today.weekday())
+                    if weekly_item.target_week_start < this_monday:
+                        weekly_item.target_week_start = this_monday
+                    for daily in weekly_item.daily:
+                        if daily.due_date is None:
+                            daily.due_date = weekly_item.target_week_start + timedelta(days=4)
+                # 과거 마감일은 오늘로 클램프 (지난 날짜 → 배치 불가 방지)
+                for daily in weekly_item.daily:
+                    if daily.due_date is not None and daily.due_date < analysis_today:
+                        daily.due_date = analysis_today
                 weekly_due_dates = [daily.due_date for daily in weekly_item.daily if daily.due_date is not None]
-                weekly_due_date = max(weekly_due_dates) if weekly_due_dates else None
+                weekly_due_date = max(weekly_due_dates) if weekly_due_dates else (
+                    weekly_item.target_week_start + timedelta(days=6)
+                    if weekly_item.target_week_start is not None
+                    else None
+                )
                 weekly_hours = sum(daily.estimated_hours for daily in weekly_item.daily)
                 weekly_priority = max(
                     (daily.priority for daily in weekly_item.daily),

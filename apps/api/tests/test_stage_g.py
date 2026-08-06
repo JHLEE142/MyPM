@@ -330,3 +330,65 @@ def test_emptied_weekly_container_is_not_scheduled(client):
     placement_ids = {item["task_id"] for item in generated["schedule_snapshot"]["placements"]}
     assert w1 not in placement_ids and m1 not in placement_ids
     assert {d1, d2} <= placement_ids
+
+
+def test_daily_window_schedules_task_in_its_week():
+    from scheduler.engine import schedule_tasks
+
+    result = schedule_tasks(
+        [
+            {"id": 1, "priority": "medium", "estimated_hours": 2, "dependency_ids": [],
+             "due_date": date(2099, 1, 23), "not_before": date(2099, 1, 17)},
+            {"id": 2, "priority": "medium", "estimated_hours": 2, "dependency_ids": []},
+        ],
+        start_date=date(2099, 1, 1),
+        target_date=date(2099, 1, 31),
+        work_days=[0, 1, 2, 3, 4, 5, 6],
+        daily_capacity_hours=8,
+        buffer_ratio=0,
+    )
+    dates_1 = [date.fromisoformat(p["date"]) for p in result["schedule_snapshot" if "schedule_snapshot" in result else "placements"] ] if False else [
+        date.fromisoformat(p["date"]) for p in result["placements"] if p["task_id"] == 1
+    ]
+    dates_2 = [date.fromisoformat(p["date"]) for p in result["placements"] if p["task_id"] == 2]
+    assert min(dates_1) >= date(2099, 1, 17) and max(dates_1) <= date(2099, 1, 23)
+    assert min(dates_2) == date(2099, 1, 1)  # 창 없는 업무는 기존대로 앞에서부터
+
+
+def test_weekly_anchor_assigns_due_dates_and_windows(client, monkeypatch):
+    from ai.schemas import DailyTaskItem, HierarchicalTaskSet, MonthlyTaskItem, SourceReference, WeeklyTaskItem
+    from ai.router import AiRouter
+
+    monkeypatch.delenv("AI_REVIEW_GATE", raising=False)
+    project = _project(client)
+    source = client.post(
+        f"/api/projects/{project['id']}/sources",
+        json={"file_name": "meeting.md", "text": "# 업무\n- 자료 요청 리스트 작성 2시간"},
+    )
+    block_id = source.json()["blocks"][0]["id"]
+
+    def fake_generate(self, analysis, context=None):
+        assert context and context.get("project_name")  # 컨텍스트가 전달되는지
+        return HierarchicalTaskSet(monthly=[
+            MonthlyTaskItem(
+                title="1월: 자료 준비", target_month="2099-01",
+                weekly=[WeeklyTaskItem(
+                    title="1월 3주차: 자료 요청", target_week_start=date(2099, 1, 12),
+                    daily=[DailyTaskItem(
+                        title="자료 요청 리스트 작성", estimated_hours=2,
+                        source_references=[SourceReference(source_id=source.json()["id"], block_id=block_id)],
+                    )],
+                )],
+            )
+        ])
+
+    monkeypatch.setattr(AiRouter, "generate_hierarchical_tasks", fake_generate)
+    assert client.post(f"/api/projects/{project['id']}/analysis").status_code == 202
+    tasks = client.get(f"/api/projects/{project['id']}/tasks").json()
+    daily = next(t for t in tasks if t["cadence"] == "daily")
+    weekly = next(t for t in tasks if t["cadence"] == "weekly")
+    assert daily["due_date"] == "2099-01-16"   # 주차 앵커(월요일)+4일 = 금요일
+    assert weekly["due_date"] == "2099-01-16"  # max(일간 due)
+    schedule = client.get(f"/api/projects/{project['id']}/schedule").json()
+    daily_dates = [p["date"] for p in schedule["schedule_snapshot"]["placements"] if p["task_id"] == daily["id"]]
+    assert daily_dates and min(daily_dates) >= "2099-01-10"  # due-6일 이후에만 배치
