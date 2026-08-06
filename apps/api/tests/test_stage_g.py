@@ -278,3 +278,55 @@ def test_reorder_rejects_foreign_and_duplicate_ids(client):
         f"/api/projects/{project_a['id']}/tasks/reorder", json={"ordered_ids": [task_a["id"], task_a["id"]]}
     )
     assert duplicate.status_code == 422
+
+
+def _hierarchy(client):
+    project = _project(client)
+    with SessionLocal() as db:
+        m1 = Task(project_id=project["id"], cadence="monthly", title="1월", status="approved", estimated_hours=0)
+        m2 = Task(project_id=project["id"], cadence="monthly", title="2월", status="approved", estimated_hours=0)
+        db.add_all([m1, m2]); db.flush()
+        w1 = Task(project_id=project["id"], parent_task_id=m1.id, cadence="weekly", title="1주", status="approved", estimated_hours=0)
+        w2 = Task(project_id=project["id"], parent_task_id=m2.id, cadence="weekly", title="2월 1주", status="approved", estimated_hours=0)
+        db.add_all([w1, w2]); db.flush()
+        d1 = Task(project_id=project["id"], parent_task_id=w1.id, cadence="daily", title="일간 A", status="approved", estimated_hours=2)
+        d2 = Task(project_id=project["id"], parent_task_id=w2.id, cadence="daily", title="일간 B", status="approved", estimated_hours=3)
+        db.add_all([d1, d2]); db.commit()
+        return project, m1.id, m2.id, w1.id, w2.id, d1.id, d2.id
+
+
+def test_move_daily_to_other_weekly_and_to_root(client):
+    project, m1, m2, w1, w2, d1, d2 = _hierarchy(client)
+    moved = client.post(f"/api/tasks/{d1}/move", json={"new_parent_id": w2, "before_task_id": d2})
+    assert moved.status_code == 200, moved.text
+    body = moved.json()
+    assert body["parent_task_id"] == w2 and body["cadence"] == "daily"
+    order = [t["id"] for t in client.get(f"/api/projects/{project['id']}/tasks").json() if t["parent_task_id"] == w2]
+    assert order == [d1, d2]
+
+    to_root = client.post(f"/api/tasks/{d1}/move", json={"new_parent_id": None})
+    assert to_root.status_code == 200
+    assert to_root.json()["parent_task_id"] is None and to_root.json()["cadence"] is None
+
+
+def test_move_weekly_to_other_monthly_and_invalid_moves(client):
+    project, m1, m2, w1, w2, d1, d2 = _hierarchy(client)
+    moved = client.post(f"/api/tasks/{w1}/move", json={"new_parent_id": m2, "before_task_id": w2})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["parent_task_id"] == m2
+    # 월간은 이동 불가
+    assert client.post(f"/api/tasks/{m1}/move", json={"new_parent_id": m2}).status_code == 422
+    # 주간을 주간 아래로 이동 불가
+    assert client.post(f"/api/tasks/{w1}/move", json={"new_parent_id": w2}).status_code == 422
+    # 일간을 월간 바로 아래로 이동 불가
+    assert client.post(f"/api/tasks/{d2}/move", json={"new_parent_id": m1}).status_code == 422
+
+
+def test_emptied_weekly_container_is_not_scheduled(client):
+    project, m1, m2, w1, w2, d1, d2 = _hierarchy(client)
+    # w1의 유일한 일간을 다른 곳으로 이동해 w1을 비운다
+    assert client.post(f"/api/tasks/{d1}/move", json={"new_parent_id": w2}).status_code == 200
+    generated = client.post(f"/api/projects/{project['id']}/schedule/generate", json={}).json()
+    placement_ids = {item["task_id"] for item in generated["schedule_snapshot"]["placements"]}
+    assert w1 not in placement_ids and m1 not in placement_ids
+    assert {d1, d2} <= placement_ids

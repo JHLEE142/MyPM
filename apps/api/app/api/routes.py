@@ -60,6 +60,7 @@ from ..schemas import (
     TaskComplete,
     TaskCreate,
     TaskOut,
+    TaskMoveRequest,
     TaskPatch,
     TaskReorderRequest,
 )
@@ -861,6 +862,76 @@ def create_task(project_id: int, payload: TaskCreate, db: Session = Depends(get_
 def list_tasks(project_id: int, db: Session = Depends(get_db)):
     _project(db, project_id)
     return list(db.scalars(task_query(project_id)))
+
+
+@router.post("/tasks/{task_id}/move", response_model=TaskOut)
+def move_task(task_id: int, payload: TaskMoveRequest, db: Session = Depends(get_db)):
+    """업무를 다른 주제(주간/월간 그룹 또는 기타)로 이동한다. 계층 규칙:
+    monthly는 이동 불가(순서 변경만), weekly는 monthly 아래로만,
+    리프(daily/기타)는 weekly 아래(daily가 됨) 또는 최상위(기타)로."""
+    task = _task(db, task_id)
+    new_parent = None
+    if payload.new_parent_id is not None:
+        new_parent = db.get(Task, payload.new_parent_id)
+        if new_parent is None or new_parent.project_id != task.project_id:
+            raise HTTPException(422, "이동 대상 그룹이 같은 프로젝트에 없습니다")
+        # 순환 방지: 새 부모의 조상 경로에 자기 자신이 있으면 안 된다
+        cursor = new_parent
+        for _ in range(20):
+            if cursor is None:
+                break
+            if cursor.id == task.id:
+                raise HTTPException(422, "자기 하위로는 이동할 수 없습니다")
+            cursor = db.get(Task, cursor.parent_task_id) if cursor.parent_task_id else None
+
+    has_children = db.scalar(select(Task.id).where(Task.parent_task_id == task.id).limit(1)) is not None
+    if task.cadence == "monthly":
+        raise HTTPException(422, "월간 업무는 이동할 수 없습니다 (순서 변경만 가능)")
+    if task.cadence == "weekly" or has_children:
+        if new_parent is None or new_parent.cadence != "monthly":
+            raise HTTPException(422, "주간 업무는 월간 업무 아래로만 이동할 수 있습니다")
+        task.parent_task_id = new_parent.id
+        task.cadence = "weekly"
+        task.milestone_id = new_parent.milestone_id
+    else:  # 리프(daily 또는 기타)
+        if new_parent is None:
+            task.parent_task_id = None
+            task.cadence = None
+        elif new_parent.cadence == "weekly":
+            task.parent_task_id = new_parent.id
+            task.cadence = "daily"
+            task.milestone_id = new_parent.milestone_id
+        else:
+            raise HTTPException(422, "일간 업무는 주간 업무 아래 또는 기타로만 이동할 수 있습니다")
+    db.flush()
+
+    # 새 형제 그룹 내 위치 반영 (before_task_id 앞, 없으면 맨 뒤)
+    siblings = list(
+        db.scalars(
+            select(Task)
+            .where(
+                Task.project_id == task.project_id,
+                Task.parent_task_id.is_(None) if task.parent_task_id is None else Task.parent_task_id == task.parent_task_id,
+                Task.id != task.id,
+            )
+            .order_by(Task.sort_order, Task.id)
+        )
+    )
+    if task.parent_task_id is None:
+        # 최상위 형제는 표시 그룹 기준(기타=cadence 없음)만 대상으로 정렬
+        siblings = [item for item in siblings if item.cadence is None]
+    insert_at = len(siblings)
+    if payload.before_task_id is not None:
+        for index, sibling in enumerate(siblings):
+            if sibling.id == payload.before_task_id:
+                insert_at = index
+                break
+    ordered = siblings[:insert_at] + [task] + siblings[insert_at:]
+    base = min((item.sort_order for item in ordered), default=0)
+    for index, item in enumerate(ordered):
+        item.sort_order = base + index
+    db.commit()
+    return _task(db, task.id)
 
 
 @router.post("/projects/{project_id}/tasks/reorder")

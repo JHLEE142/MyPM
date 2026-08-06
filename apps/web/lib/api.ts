@@ -126,6 +126,11 @@ export const api = {
     remove: (taskId: number) => request<void>(`/api/tasks/${taskId}`, { method: "DELETE" }),
     removeAll: (projectId: number) =>
       request<{ deleted: number }>(`/api/projects/${projectId}/tasks`, { method: "DELETE" }),
+    move: (taskId: number, newParentId: number | null, beforeTaskId?: number | null) =>
+      request<Task>(`/api/tasks/${taskId}/move`, {
+        method: "POST",
+        body: json({ new_parent_id: newParentId, before_task_id: beforeTaskId ?? null }),
+      }),
     reorder: (projectId: number, orderedIds: number[]) =>
       request<{ updated: number }>(`/api/projects/${projectId}/tasks/reorder`, {
         method: "POST",

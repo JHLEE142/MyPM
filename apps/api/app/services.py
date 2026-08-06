@@ -58,9 +58,12 @@ def task_query(project_id: int):
 
 
 def leaf_task_query(project_id: int):
+    # 컨테이너(월간/주간)는 자식 유무와 무관하게 집계·배치에서 제외한다
+    # (이동으로 자식이 모두 빠져나가도 갑자기 배치 대상이 되지 않도록)
     child = aliased(Task)
     return task_query(project_id).where(
-        ~select(child.id).where(child.parent_task_id == Task.id).exists()
+        ~select(child.id).where(child.parent_task_id == Task.id).exists(),
+        (Task.cadence.is_(None)) | (Task.cadence == "daily"),
     )
 
 

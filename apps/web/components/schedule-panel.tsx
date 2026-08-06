@@ -14,6 +14,14 @@ const strategies: Array<{ id: ReplanRequest["strategy"]; title: string; descript
   { id: "change_target", title: "목표일 변경", description: "새 목표일을 기준으로 남은 업무를 배치합니다." },
 ];
 const planStatuses = new Set(["approved", "scheduled", "in_progress", "completed"]);
+type DragKind = "monthly" | "weekly" | "leaf";
+
+// 다른 주제로의 이동 허용 규칙: 리프(일간·기타) → 다른 일간 위/주간 그룹, 주간 → 다른 주간 위/월간 그룹
+function canMoveAcross(dragKind: DragKind, targetKind: DragKind): boolean {
+  if (dragKind === "leaf") return targetKind === "leaf" || targetKind === "weekly";
+  if (dragKind === "weekly") return targetKind === "weekly" || targetKind === "monthly";
+  return false;
+}
 
 function localDateKey(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
@@ -35,10 +43,10 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
   const [newPriority, setNewPriority] = useState<TaskPriority>("medium");
   const [newDueDate, setNewDueDate] = useState("");
   const [taskBusyId, setTaskBusyId] = useState<number | "new" | "all" | null>(null);
-  const [dragging, setDragging] = useState<{ group: string; id: number } | null>(null);
+  const [dragging, setDragging] = useState<{ group: string; id: number; kind: DragKind } | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
   // 핸들러는 렌더 클로저가 아닌 ref에서 최신 드래그 상태를 읽는다 (state는 스타일 표시 전용)
-  const draggingRef = useRef<{ group: string; id: number } | null>(null);
+  const draggingRef = useRef<{ group: string; id: number; kind: DragKind } | null>(null);
   const snapshot = schedule.schedule_snapshot;
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
   const listTasks = useMemo(
@@ -173,7 +181,13 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
     catch (e) { setError(errorMessage(e)); }
   }
 
-  function dragProps(group: string, task: Task, siblings: Task[]) {
+  async function moveTask(taskId: number, newParentId: number | null, beforeTaskId?: number | null) {
+    setError("");
+    try { await api.tasks.move(taskId, newParentId, beforeTaskId); await onChange(); }
+    catch (e) { setError(errorMessage(e)); }
+  }
+
+  function dragProps(group: string, task: Task, siblings: Task[], kind: DragKind, parentId: number | null) {
     // 트리가 중첩 draggable이므로 stopPropagation으로 상위 행의 핸들러 실행(드래그 상태 덮어쓰기)을 막는다.
     return {
       draggable: true,
@@ -181,7 +195,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
         event.stopPropagation();
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", String(task.id));
-        draggingRef.current = { group, id: task.id };
+        draggingRef.current = { group, id: task.id, kind };
         setDragging(draggingRef.current);
       },
       onDragEnd: (event: React.DragEvent) => {
@@ -192,7 +206,8 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
       },
       onDragOver: (event: React.DragEvent) => {
         const current = draggingRef.current;
-        if (current?.group === group && current.id !== task.id) {
+        if (!current || current.id === task.id) return;
+        if (current.group === group || canMoveAcross(current.kind, kind)) {
           event.preventDefault();
           event.stopPropagation();
           setDragOverId(task.id);
@@ -204,9 +219,22 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
         event.stopPropagation();
         setDragOverId(null);
         const current = draggingRef.current;
-        if (current?.group === group && current.id !== task.id) void reorderSiblings(siblings, current.id, task.id);
         draggingRef.current = null;
         setDragging(null);
+        if (!current || current.id === task.id) return;
+        if (current.group === group) {
+          void reorderSiblings(siblings, current.id, task.id);
+          return;
+        }
+        if (!canMoveAcross(current.kind, kind)) return;
+        // 다른 주제로 이동: 대상이 같은 계층 행이면 그 앞에, 컨테이너 행이면 그 안의 맨 뒤에
+        if (current.kind === "leaf") {
+          if (kind === "leaf") void moveTask(current.id, parentId, task.id);
+          else void moveTask(current.id, task.id, null); // weekly 컨테이너로
+        } else if (current.kind === "weekly") {
+          if (kind === "weekly") void moveTask(current.id, parentId, task.id);
+          else void moveTask(current.id, task.id, null); // monthly 컨테이너로
+        }
       },
     };
   }
@@ -254,7 +282,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
               const monthlyStats = taskStats.get(monthlyTask.id) ?? { hours: monthlyTask.estimated_hours, progress: 0, completedHours: 0 };
               const weeklyTasks = childrenByParent.get(monthlyTask.id) ?? [];
               return (
-                <div key={monthlyTask.id} className={`rounded-xl border border-[#dfe7e4] bg-white p-3${dragHighlight(monthlyTask)}`} {...dragProps("monthly", monthlyTask, monthlyRoots)}>
+                <div key={monthlyTask.id} className={`rounded-xl border border-[#dfe7e4] bg-white p-3${dragHighlight(monthlyTask)}`} {...dragProps("monthly", monthlyTask, monthlyRoots, "monthly", null)}>
                   <div className="flex items-center gap-2.5">
                     <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                     <span className="text-base text-[#166a58]" aria-hidden>●</span>
@@ -265,7 +293,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                     {weeklyTasks.map((weeklyTask) => {
                       const weeklyStats = taskStats.get(weeklyTask.id) ?? { hours: weeklyTask.estimated_hours, progress: 0, completedHours: 0 };
                       return (
-                        <div key={weeklyTask.id} className={`rounded-lg bg-[#f7faf8] p-2.5${dragHighlight(weeklyTask)}`} {...dragProps(`weekly-${monthlyTask.id}`, weeklyTask, weeklyTasks)}>
+                        <div key={weeklyTask.id} className={`rounded-lg bg-[#f7faf8] p-2.5${dragHighlight(weeklyTask)}`} {...dragProps(`weekly-${monthlyTask.id}`, weeklyTask, weeklyTasks, "weekly", monthlyTask.id)}>
                           <div className="flex items-center gap-2.5">
                             <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                             <span className="text-[#3b7c6c]" aria-hidden>◦</span>
@@ -274,7 +302,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                           </div>
                           <div className="mt-1.5 space-y-1 pl-5">
                             {(childrenByParent.get(weeklyTask.id) ?? []).map((dailyTask) => (
-                              <div key={dailyTask.id} className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${dailyTask.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}${dragHighlight(dailyTask)}`} {...dragProps(`daily-${weeklyTask.id}`, dailyTask, childrenByParent.get(weeklyTask.id) ?? [])}>
+                              <div key={dailyTask.id} className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${dailyTask.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}${dragHighlight(dailyTask)}`} {...dragProps(`daily-${weeklyTask.id}`, dailyTask, childrenByParent.get(weeklyTask.id) ?? [], "leaf", weeklyTask.id)}>
                                 <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                                 <span className="text-[#71807b]" aria-hidden>·</span>
                                 <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={dailyTask.status === "completed"} disabled={taskBusyId === dailyTask.id} aria-label={`${dailyTask.title} 완료 체크`} onChange={(event) => void toggleComplete(dailyTask, event.target.checked)} />
@@ -291,12 +319,26 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                 </div>
               );
             })}
+            {dragging?.kind === "leaf" && flatTasks.length === 0 && (
+              <div
+                className="rounded-xl border-2 border-dashed border-[#c9d8d2] bg-[#f8faf9] p-4 text-center text-xs font-bold text-[#5e706a]"
+                onDragOver={(event) => { event.preventDefault(); }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const current = draggingRef.current;
+                  draggingRef.current = null; setDragging(null); setDragOverId(null);
+                  if (current?.kind === "leaf") void moveTask(current.id, null, null);
+                }}
+              >
+                여기에 놓으면 기타 업무로 이동합니다
+              </div>
+            )}
             {flatTasks.length > 0 && (
               <div className="rounded-xl border border-[#dfe7e4] bg-[#f8faf9] p-3">
                 <h4 className="mb-2 text-xs font-black text-[#5e706a]">기타 업무</h4>
                 <div className="space-y-1">
                   {flatTasks.map((task) => (
-                    <div key={task.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${task.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}${dragHighlight(task)}`} {...dragProps("flat", task, flatTasks)}>
+                    <div key={task.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${task.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}${dragHighlight(task)}`} {...dragProps("flat", task, flatTasks, "leaf", null)}>
                       <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                       <span className="text-[#71807b]" aria-hidden>·</span>
                       <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />

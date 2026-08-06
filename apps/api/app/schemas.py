@@ -253,6 +253,13 @@ class TaskReorderRequest(BaseModel):
     ordered_ids: list[int] = Field(min_length=1, max_length=1000)
 
 
+class TaskMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_parent_id: int | None = None
+    before_task_id: int | None = None
+
+
 class TaskComplete(BaseModel):
     actual_hours: float | None = Field(default=None, ge=0)
     note: str | None = None
