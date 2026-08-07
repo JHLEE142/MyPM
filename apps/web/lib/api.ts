@@ -164,7 +164,26 @@ export const api = {
   router: {
     status: () => request<RouterStatus>("/api/ai/router/status"),
   },
+  aiSettings: {
+    get: () => request<AiSettings>("/api/settings/ai"),
+    saveKey: (provider: string, apiKey: string) =>
+      request<AiSettings>(`/api/settings/ai/${provider}`, { method: "PUT", body: json({ api_key: apiKey }) }),
+    deleteKey: (provider: string) =>
+      request<AiSettings>(`/api/settings/ai/${provider}`, { method: "DELETE" }),
+  },
 };
+
+export type AiProviderSetting = {
+  provider: string;
+  label: string;
+  router_name: string;
+  model: string;
+  configured: boolean;
+  masked_key: string | null;
+  source: "ui" | "env" | null;
+};
+
+export type AiSettings = { providers: AiProviderSetting[] };
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";

@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -357,6 +357,46 @@ def discard_project_draft(draft_id: int, db: Session = Depends(get_db)):
 @router.get("/ai/router/status", response_model=RouterStatus)
 def get_ai_router_status():
     return {"providers": router_status()}
+
+
+class AiKeyUpdate(BaseModel):
+    api_key: str = Field(min_length=1, max_length=500)
+
+
+def _validate_ai_provider(provider: str) -> str:
+    from app.ai_settings import AI_PROVIDERS
+
+    if provider not in AI_PROVIDERS:
+        raise HTTPException(404, f"지원하지 않는 provider: {provider}")
+    return provider
+
+
+@router.get("/settings/ai")
+def get_ai_settings(db: Session = Depends(get_db)):
+    from app.ai_settings import ai_key_status
+
+    return {"providers": ai_key_status(db)}
+
+
+@router.put("/settings/ai/{provider}")
+def put_ai_key(provider: str, payload: AiKeyUpdate, db: Session = Depends(get_db)):
+    from app.ai_settings import ai_key_status, set_ai_key
+
+    _validate_ai_provider(provider)
+    try:
+        set_ai_key(db, provider, payload.api_key)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"providers": ai_key_status(db)}
+
+
+@router.delete("/settings/ai/{provider}")
+def remove_ai_key(provider: str, db: Session = Depends(get_db)):
+    from app.ai_settings import ai_key_status, delete_ai_key
+
+    _validate_ai_provider(provider)
+    delete_ai_key(db, provider)
+    return {"providers": ai_key_status(db)}
 
 
 @router.get("/projects", response_model=list[ProjectOut])

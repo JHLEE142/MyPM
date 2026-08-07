@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 const providerLabels: Record<string, string> = {
   anthropic_api: "Claude API",
   openai_api: "OpenAI API",
+  gemini_api: "Gemini API",
   claude_agent: "Claude Agent",
   codex_cli: "Codex CLI",
   mock: "Mock",

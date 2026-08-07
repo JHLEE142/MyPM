@@ -18,6 +18,12 @@ from .database import ensure_schema
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     ensure_schema()
+    # 설정 화면에서 저장한 API 키를 프로세스 환경에 반영 (.env보다 우선)
+    from .ai_settings import apply_stored_ai_keys
+    from .database import SessionLocal
+
+    with SessionLocal() as db:
+        apply_stored_ai_keys(db)
     yield
 
 

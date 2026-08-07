@@ -14,14 +14,15 @@ from sqlalchemy.orm import Session
 
 from .cli_providers import ClaudeAgentProvider, CodexCliProvider, ProviderError
 from .document_analyzer import AnalysisProvider, AnthropicProvider, MockProvider
+from .gemini_provider import GeminiApiProvider
 from .openai_provider import OpenAiApiProvider
 from .schemas import DocumentAnalysis, DraftChatResult, DraftFields, HierarchicalTaskSet, ProjectAnalysis
 
 
 logger = logging.getLogger(__name__)
-DEFAULT_CHAT_ORDER = "anthropic_api,openai_api,claude_agent,codex_cli,mock"
-DEFAULT_ANALYSIS_ORDER = "anthropic_api,openai_api,mock"
-KNOWN_PROVIDERS = ("anthropic_api", "openai_api", "claude_agent", "codex_cli", "mock")
+DEFAULT_CHAT_ORDER = "anthropic_api,openai_api,gemini_api,claude_agent,codex_cli,mock"
+DEFAULT_ANALYSIS_ORDER = "anthropic_api,openai_api,gemini_api,mock"
+KNOWN_PROVIDERS = ("anthropic_api", "openai_api", "gemini_api", "claude_agent", "codex_cli", "mock")
 _QUOTA_EXHAUSTED = object()
 _QUOTA_RESERVATION_LOCK = threading.Lock()
 _ROUTER_CACHE_LOCK = threading.Lock()
@@ -69,6 +70,7 @@ class AiRouter(AnalysisProvider):
     def _default_providers() -> dict[str, AnalysisProvider]:
         providers: dict[str, AnalysisProvider] = {
             "openai_api": OpenAiApiProvider(),
+            "gemini_api": GeminiApiProvider(),
             "claude_agent": ClaudeAgentProvider(),
             "codex_cli": CodexCliProvider(),
             "mock": MockProvider(),
@@ -328,6 +330,8 @@ def _router_cache_key() -> tuple[str | None, ...]:
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "OPENAI_MODEL",
+            "GEMINI_API_KEY",
+            "GEMINI_MODEL",
             "PATH",
         )
     )

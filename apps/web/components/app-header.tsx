@@ -15,6 +15,7 @@ export function AppHeader() {
         <nav className="flex items-center gap-2">
           <AiRouterWidget />
           <Link href="/projects" className="btn btn-ghost btn-sm">프로젝트</Link>
+          <Link href="/settings" className="btn btn-ghost btn-sm">설정</Link>
           <Link href="/projects/new" className="btn btn-primary btn-sm"><span aria-hidden>＋</span> 새 프로젝트</Link>
         </nav>
       </div>
