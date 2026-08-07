@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";
 import { formatFullDate, formatHours, isoToday, taskStatusLabel } from "@/lib/format";
+import { useRefreshListener } from "@/lib/refresh";
 
 export default function TodayPage() {
   const params = useParams<{ id: string }>();
@@ -35,6 +36,7 @@ export default function TodayPage() {
     finally { setLoading(false); }
   }, [projectId]);
 
+  useRefreshListener(() => load());
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);

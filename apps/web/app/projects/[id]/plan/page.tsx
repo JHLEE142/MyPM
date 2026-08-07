@@ -9,6 +9,7 @@ import { ProgressChart } from "@/components/progress-chart";
 import { SchedulePanel } from "@/components/schedule-panel";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatHours, isoToday, paceLabel, paceTone } from "@/lib/format";
+import { useRefreshListener } from "@/lib/refresh";
 
 export default function PlanPage() {
   const params = useParams<{ id: string }>(); const projectId = Number(params.id);
@@ -34,6 +35,7 @@ export default function PlanPage() {
     finally { setLoading(false); }
   }, [projectId]);
 
+  useRefreshListener(() => load());
   useEffect(() => {
     const timer = window.setTimeout(() => void load(true), 0);
     return () => window.clearTimeout(timer);

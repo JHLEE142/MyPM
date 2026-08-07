@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectAreaChart } from "@/components/project-area-chart";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatHours, isoToday, paceLabel, paceTone } from "@/lib/format";
+import { useRefreshListener } from "@/lib/refresh";
 
 interface ProjectRow { project: Project; dashboard: Dashboard | null; tasks: Task[]; snapshot: ScheduleSnapshot | null; }
 
@@ -33,6 +34,7 @@ export default function ProjectsPage() {
     finally { setLoading(false); }
   }, []);
 
+  useRefreshListener(() => load(), { onWindowFocus: true });
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);

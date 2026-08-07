@@ -1,7 +1,7 @@
 // MyPM 데스크톱 셸.
 // 백엔드(uvicorn:8000)와 프론트(next:3000)가 꺼져 있으면 직접 띄우고,
 // 앱을 종료하면 "이 앱이 띄운" 프로세스만 정리한다(원래 떠 있던 서버는 건드리지 않음).
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
 const { spawn } = require("child_process");
 const http = require("http");
 const fs = require("fs");
@@ -99,12 +99,19 @@ const LOADING_PAGE = `data:text/html;charset=utf-8,${encodeURIComponent(`
 <div style="text-align:center"><div style="font-size:40px;font-weight:700">MyPM</div>
 <div style="margin-top:12px;color:#5b6b64">서버 시작 중…</div></div></body></html>`)}`;
 
+// 앱 헤더(높이 64px)를 그대로 타이틀바로 쓴다. 신호등 버튼을 헤더 세로 가운데에 맞추면
+// 헤더 어디를 잡아도 창이 끌리고(웹 쪽 .drag-region), 버튼과 로고가 겹치지 않는다.
+const TITLE_BAR_HEIGHT = 64;
+
 async function createWindow() {
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
+    minWidth: 960,
+    minHeight: 640,
     title: "MyPM",
     titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 18, y: Math.round(TITLE_BAR_HEIGHT / 2) - 8 },
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   window.loadURL(LOADING_PAGE);
@@ -119,7 +126,85 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+// 기본 메뉴는 영어이고 창 정렬 항목이 없다. 새로고침과 창 위치 맞추기를 단축키로 쓸 수 있게 직접 구성한다.
+function buildMenu() {
+  const focused = () => BrowserWindow.getFocusedWindow();
+  const template = [
+    { role: "appMenu" },
+    {
+      label: "보기",
+      submenu: [
+        {
+          // preload가 없어 IPC를 못 받으므로, 웹 쪽이 듣고 있는 이벤트를 직접 발생시킨다.
+          // 데이터만 다시 불러오므로 스크롤과 입력 중이던 값이 유지된다.
+          label: "새로고침",
+          accelerator: "CmdOrCtrl+R",
+          click: () => {
+            focused()
+              ?.webContents.executeJavaScript('window.dispatchEvent(new CustomEvent("mypm:refresh"))')
+              .catch(() => focused()?.webContents.reload());
+          },
+        },
+        {
+          label: "강제 새로고침 (페이지 다시 불러오기)",
+          accelerator: "Shift+CmdOrCtrl+R",
+          click: () => focused()?.webContents.reloadIgnoringCache(),
+        },
+        { type: "separator" },
+        { role: "resetZoom", label: "실제 크기" },
+        { role: "zoomIn", label: "확대" },
+        { role: "zoomOut", label: "축소" },
+        { type: "separator" },
+        { role: "togglefullscreen", label: "전체 화면" },
+        { role: "toggleDevTools", label: "개발자 도구" },
+      ],
+    },
+    {
+      label: "창",
+      submenu: [
+        { role: "minimize", label: "최소화" },
+        { role: "zoom", label: "확대/축소" },
+        { type: "separator" },
+        {
+          label: "화면 가운데로",
+          accelerator: "CmdOrCtrl+Alt+C",
+          click: () => focused()?.center(),
+        },
+        {
+          label: "기본 크기로 되돌리기",
+          accelerator: "CmdOrCtrl+Alt+0",
+          click: () => {
+            const window = focused();
+            if (!window) return;
+            window.unmaximize();
+            window.setSize(1440, 920);
+            window.center();
+          },
+        },
+        { type: "separator" },
+        { role: "close", label: "닫기" },
+      ],
+    },
+    { role: "editMenu", label: "편집" },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+app.whenReady().then(() => {
+  buildMenu();
+  return createWindow();
+});
+
+// 외부 링크는 앱 창 대신 기본 브라우저에서 연다(앱이 낯선 페이지로 이동해 갇히지 않도록).
+app.on("web-contents-created", (_event, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (!url.startsWith(WEB_URL)) {
+      void shell.openExternal(url);
+      return { action: "deny" };
+    }
+    return { action: "allow" };
+  });
+});
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();

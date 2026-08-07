@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage, type AiProviderSetting } from "@/lib/api";
+import { useRefreshListener } from "@/lib/refresh";
 
 const PROVIDER_HELP: Record<string, { placeholder: string; hint: string }> = {
   anthropic: { placeholder: "sk-ant-…", hint: "console.anthropic.com → API Keys" },
@@ -114,8 +115,11 @@ export default function GlobalSettingsPage() {
     }
   }, []);
 
+  useRefreshListener(() => load());
   useEffect(() => {
-    void load();
+    // 다른 화면과 같은 방식: 이펙트 본문에서 곧바로 setState 하지 않도록 한 틱 미룬다.
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   return (

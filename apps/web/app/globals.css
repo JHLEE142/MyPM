@@ -31,6 +31,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 
 .page-shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+
+/* 데스크톱 앱(Electron)에서 헤더를 잡고 창을 옮길 수 있게 한다. 브라우저에서는 무시된다.
+   drag 영역 안의 버튼·링크·입력은 no-drag여야 클릭이 먹는다. */
+.drag-region { -webkit-app-region: drag; }
+.no-drag,
+.drag-region button, .drag-region a, .drag-region input, .drag-region select, .drag-region textarea {
+  -webkit-app-region: no-drag;
+}
+
+@keyframes mypm-spin { to { transform: rotate(360deg); } }
+.mypm-spin { animation: mypm-spin .6s linear; }
+@media (prefers-reduced-motion: reduce) { .mypm-spin { animation: none; } }
+
 .panel { border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.94); box-shadow: 0 10px 36px rgba(31,57,50,.055); }
 .card { border: 1px solid var(--line); border-radius: 14px; background: #fff; }
 .eyebrow { color: var(--accent); font-size: .72rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }

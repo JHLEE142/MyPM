@@ -13,6 +13,7 @@ import type {
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";
+import { useRefreshListener } from "@/lib/refresh";
 
 const sourceStatus: Record<string, { label: string; tone: string }> = {
   uploaded: { label: "업로드됨", tone: "badge-neutral" },
@@ -78,6 +79,7 @@ export default function SourcesPage() {
     finally { if (!quiet) setLoading(false); }
   }, [projectId]);
 
+  useRefreshListener(() => load(true));
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);

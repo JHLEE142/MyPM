@@ -6,6 +6,7 @@ import type { Project } from "@mypm/shared-types";
 import { ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";
+import { useRefreshListener } from "@/lib/refresh";
 
 const weekdays = ["월", "화", "수", "목", "금", "토", "일"];
 
@@ -31,6 +32,7 @@ export default function ProjectSettingsPage() {
     finally { setLoading(false); }
   }, [projectId]);
 
+  useRefreshListener(() => load());
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
