@@ -63,6 +63,8 @@ from ..schemas import (
     TaskMoveRequest,
     TaskPatch,
     TaskReorderRequest,
+    TaskUpdateApplyRequest,
+    TaskUpdatePreviewRequest,
 )
 from ..services import (
     calculate_forecast,
@@ -566,6 +568,145 @@ async def create_source(project_id: int, request: Request, db: Session = Depends
 def list_sources(project_id: int, db: Session = Depends(get_db)):
     _project(db, project_id)
     return list(db.scalars(_source_query(project_id)))
+
+
+UPDATABLE_TASK_STATUSES = {"approved", "scheduled", "in_progress", "completed", "on_hold", "blocked"}
+
+
+def _update_target_tasks(db: Session, project_id: int) -> list[Task]:
+    return [task for task in db.scalars(leaf_task_query(project_id)) if task.status in UPDATABLE_TASK_STATUSES]
+
+
+def _task_snapshot(task: Task) -> dict[str, Any]:
+    return {
+        "id": task.id,
+        "title": task.title,
+        "status": task.status,
+        "priority": task.priority,
+        "estimated_hours": task.estimated_hours,
+        "progress_percent": task.progress_percent,
+        "due_date": task.due_date.isoformat() if task.due_date else None,
+    }
+
+
+@router.post("/projects/{project_id}/task-updates/preview")
+def preview_task_updates(project_id: int, payload: TaskUpdatePreviewRequest, db: Session = Depends(get_db)):
+    """진행 메모를 요약하고, 기존 업무에 반영할 변경을 제안한다(저장하지 않음)."""
+    project = _project(db, project_id)
+    tasks = _update_target_tasks(db, project_id)
+    if not tasks:
+        raise HTTPException(409, "반영할 기존 업무가 없습니다. 먼저 업무를 추가하세요.")
+    snapshots = [_task_snapshot(task) for task in tasks]
+    known_ids = {snapshot["id"] for snapshot in snapshots}
+    ai_router = get_ai_router()
+    try:
+        plan = ai_router.plan_task_updates(
+            payload.text,
+            snapshots,
+            {
+                "name": project.name,
+                "start_date": project.start_date.isoformat(),
+                "target_date": project.target_date.isoformat(),
+                "today": date.today().isoformat(),
+            },
+        )
+    except ProviderError as exc:
+        raise HTTPException(503, "AI provider가 응답하지 않아 제안을 만들지 못했습니다") from exc
+    by_id = {task.id: task for task in tasks}
+    proposals: list[dict[str, Any]] = []
+    for item in plan.updates:
+        # 모델이 만들어낸 존재하지 않는 task_id는 버린다.
+        if item.action != "create" and item.task_id not in known_ids:
+            continue
+        proposal = item.model_dump(mode="json")
+        proposal["current"] = _task_snapshot(by_id[item.task_id]) if item.task_id in by_id else None
+        proposals.append(proposal)
+    return {
+        "summary": plan.summary,
+        "provider": ai_router.last_provider_name or "unknown",
+        "updates": proposals,
+    }
+
+
+@router.post("/projects/{project_id}/task-updates/apply")
+def apply_task_updates(project_id: int, payload: TaskUpdateApplyRequest, db: Session = Depends(get_db)):
+    """검토한 제안을 실제 업무에 반영한다."""
+    _project(db, project_id)
+    tasks = {task.id: task for task in _update_target_tasks(db, project_id)}
+    applied = {"updated": 0, "completed": 0, "created": 0}
+    today = date.today()
+    for item in payload.updates:
+        if item.action == "create":
+            db.add(
+                Task(
+                    project_id=project_id,
+                    title=item.title.strip(),
+                    status="approved",
+                    priority=item.priority or "medium",
+                    estimated_hours=item.estimated_hours if item.estimated_hours is not None else 1.0,
+                    progress_percent=item.progress_percent or 0.0,
+                    due_date=item.due_date,
+                )
+            )
+            applied["created"] += 1
+            continue
+        task = tasks.get(item.task_id)
+        if task is None:
+            raise HTTPException(404, f"업무를 찾을 수 없습니다: {item.task_id}")
+        if _task_has_children(db, task.id):
+            raise HTTPException(409, f"하위 업무가 있는 업무는 직접 반영할 수 없습니다: {task.title}")
+        previous = {
+            "status": task.status,
+            "progress_percent": task.progress_percent,
+            "actual_hours": task.actual_hours,
+        }
+        if item.action == "complete":
+            task.status = "completed"
+            task.progress_percent = 100.0
+            task.actual_hours = task.actual_hours or task.estimated_hours
+            task.actual_start_date = task.actual_start_date or today
+            task.actual_end_date = today
+            record_task_event(
+                db,
+                task,
+                "completed",
+                previous,
+                {"status": "completed", "progress_percent": 100.0, "actual_hours": task.actual_hours},
+                "자료 메모 반영",
+                event_date=today,
+            )
+            applied["completed"] += 1
+            continue
+        if item.title is not None:
+            task.title = item.title.strip()
+        if item.estimated_hours is not None:
+            task.estimated_hours = item.estimated_hours
+        if item.priority is not None:
+            task.priority = item.priority
+        if item.due_date is not None:
+            task.due_date = item.due_date
+        if item.progress_percent is not None:
+            task.progress_percent = item.progress_percent
+            if item.progress_percent >= 100:
+                task.status = "completed"
+                task.actual_end_date = today
+            elif item.progress_percent > 0:
+                if task.status in {"approved", "scheduled", "completed"}:
+                    task.status = "in_progress"
+                task.actual_start_date = task.actual_start_date or today
+                task.actual_end_date = None
+            record_task_event(
+                db,
+                task,
+                "progress_updated",
+                previous,
+                {"status": task.status, "progress_percent": task.progress_percent},
+                "자료 메모 반영",
+                event_date=today,
+            )
+        applied["updated"] += 1
+    db.commit()
+    return applied
 
 
 @router.get("/sources/{source_id}", response_model=SourceDocumentOut)
@@ -1106,15 +1247,18 @@ def reopen_task(task_id: int, db: Session = Depends(get_db)):
         .order_by(TaskEvent.id.desc())
         .limit(1)
     )
-    if completed_event is None or not completed_event.previous_value:
-        raise HTTPException(409, "복원할 완료 이력이 없습니다")
-    try:
-        previous = json.loads(completed_event.previous_value)
-        previous_status = previous["status"]
-        previous_progress = float(previous["progress_percent"])
-        previous_hours = float(previous["actual_hours"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(409, "완료 이력을 복원할 수 없습니다") from exc
+    # 완료 이력이 있으면 완료 직전 상태로, 없으면(외부 시드 등) 진행 중 상태로 되돌린다.
+    previous_status = "in_progress"
+    previous_progress = 0.0
+    previous_hours = task.actual_hours or 0.0
+    if completed_event is not None and completed_event.previous_value:
+        try:
+            previous = json.loads(completed_event.previous_value)
+            previous_status = previous["status"]
+            previous_progress = float(previous["progress_percent"])
+            previous_hours = float(previous["actual_hours"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            pass
     completed_state = {
         "status": task.status,
         "progress_percent": task.progress_percent,
@@ -1124,7 +1268,8 @@ def reopen_task(task_id: int, db: Session = Depends(get_db)):
     task.progress_percent = previous_progress
     task.actual_hours = previous_hours
     task.actual_end_date = None
-    record_task_event(db, task, "reopened", completed_state, previous)
+    restored = {"status": previous_status, "progress_percent": previous_progress, "actual_hours": previous_hours}
+    record_task_event(db, task, "reopened", completed_state, restored)
     db.commit()
     return _task(db, task.id)
 

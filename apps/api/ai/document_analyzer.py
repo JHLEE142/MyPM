@@ -19,6 +19,7 @@ from .schemas import (
     ProjectAnalysis,
     SourceReference,
     TaskCandidate,
+    TaskUpdatePlan,
 )
 
 
@@ -89,6 +90,17 @@ class AnalysisProvider(ABC):
         from .task_generator import generate_tasks
 
         return generate_tasks(analysis, context)
+
+    def plan_task_updates(
+        self, text: str, tasks: list[dict[str, Any]], project: dict[str, Any]
+    ) -> TaskUpdatePlan:
+        """구조화 출력이 가능한 provider는 그대로 재사용한다. 불가능하면 라우터가 다음 provider로 넘어간다."""
+        from .update_planner import build_update_prompt
+
+        complete_structured = getattr(self, "_complete_structured", None)
+        if complete_structured is None:
+            raise NotImplementedError(f"{self.name} does not support task update planning")
+        return complete_structured(build_update_prompt(text, tasks, project), TaskUpdatePlan, 6000)
 
 
 class MockProvider(AnalysisProvider):
@@ -205,6 +217,13 @@ class MockProvider(AnalysisProvider):
             project_start_date=min(start_candidates) if start_candidates else None,
             project_target_date=max(target_candidates) if target_candidates else None,
         )
+
+    def plan_task_updates(
+        self, text: str, tasks: list[dict[str, Any]], project: dict[str, Any]
+    ) -> TaskUpdatePlan:
+        from .update_planner import heuristic_update_plan
+
+        return heuristic_update_plan(text, tasks)
 
     def chat_draft(self, fields: DraftFields, conversation: list[dict[str, str]]) -> DraftChatResult:
         message = next((item["content"] for item in reversed(conversation) if item.get("role") == "user"), "")
@@ -418,6 +437,23 @@ class AnthropicProvider(AnalysisProvider):
         if result is None:
             raise ValueError("Anthropic structured output was empty")
         return result if isinstance(result, HierarchicalTaskSet) else HierarchicalTaskSet.model_validate(result)
+
+    def plan_task_updates(
+        self, text: str, tasks: list[dict[str, Any]], project: dict[str, Any]
+    ) -> TaskUpdatePlan:
+        from .update_planner import build_update_prompt
+
+        response = self.client.messages.parse(
+            model="claude-opus-5",
+            max_tokens=6000,
+            system=SYSTEM_SAFETY_PROMPT,
+            messages=[{"role": "user", "content": build_update_prompt(text, tasks, project)}],
+            output_format=TaskUpdatePlan,
+        )
+        result = getattr(response, "parsed_output", None)
+        if result is None:
+            raise ValueError("Anthropic structured output was empty")
+        return result if isinstance(result, TaskUpdatePlan) else TaskUpdatePlan.model_validate(result)
 
 
 def get_provider() -> AnalysisProvider:

@@ -75,6 +75,10 @@ export function ProjectAreaChart({ snapshot, tasks, startDate, targetDate }: {
 
   const todayKey = dateKey(new Date());
   const todayIndex = points.findIndex((p) => p.date === todayKey);
+  // 완료 누적은 실적이므로 오늘까지만 그린다 (오늘이 기간 밖이면 전체 또는 시작점까지)
+  const doneEnd = todayIndex >= 0 ? todayIndex : todayKey > points[points.length - 1].date ? points.length - 1 : 0;
+  const doneLine = points.slice(0, doneEnd + 1).map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.done).toFixed(1)}`).join(" ");
+  const doneArea = `${doneLine} L ${x(doneEnd).toFixed(1)} ${padTop + plotHeight} L 0 ${padTop + plotHeight} Z`;
   const hover = hoverIndex === null ? null : points[hoverIndex];
   const last = points[points.length - 1];
   const donePercent = last.planned > 0 ? Math.round((Math.min(last.done, last.planned) / last.planned) * 100) : 0;
@@ -85,7 +89,7 @@ export function ProjectAreaChart({ snapshot, tasks, startDate, targetDate }: {
         viewBox={`0 0 ${width} ${height}`}
         className="w-full"
         role="img"
-        aria-label={`계획 누적 ${Math.round(last.planned)}시간 대비 완료 누적 ${Math.round(last.done)}시간, 달성 ${donePercent}퍼센트`}
+        aria-label={`계획 누적 ${Math.round(last.planned)}시간 대비 완료 누적 ${Math.round(points[doneEnd].done)}시간, 달성 ${donePercent}퍼센트`}
         onMouseLeave={() => setHoverIndex(null)}
         onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -95,15 +99,21 @@ export function ProjectAreaChart({ snapshot, tasks, startDate, targetDate }: {
       >
         <path d={area((p) => p.planned)} fill="#e7edea" />
         <path d={line((p) => p.planned)} fill="none" stroke="#c6d3ce" strokeWidth="1.5" />
-        <path d={area((p) => p.done)} fill="#166a58" fillOpacity="0.22" />
-        <path d={line((p) => p.done)} fill="none" stroke="#166a58" strokeWidth="2" />
+        {doneEnd > 0 && (
+          <>
+            <path d={doneArea} fill="#166a58" fillOpacity="0.22" />
+            <path d={doneLine} fill="none" stroke="#166a58" strokeWidth="2" />
+          </>
+        )}
         {todayIndex >= 0 && (
           <line x1={x(todayIndex)} x2={x(todayIndex)} y1={padTop} y2={padTop + plotHeight} stroke="#9db3ab" strokeWidth="1" strokeDasharray="3 3" />
         )}
         {hoverIndex !== null && (
           <>
             <line x1={x(hoverIndex)} x2={x(hoverIndex)} y1={padTop} y2={padTop + plotHeight} stroke="#53635e" strokeWidth="1" />
-            <circle cx={x(hoverIndex)} cy={y(points[hoverIndex].done)} r="3.5" fill="#166a58" stroke="#fff" strokeWidth="1.5" />
+            {hoverIndex <= doneEnd && (
+              <circle cx={x(hoverIndex)} cy={y(points[hoverIndex].done)} r="3.5" fill="#166a58" stroke="#fff" strokeWidth="1.5" />
+            )}
             <circle cx={x(hoverIndex)} cy={y(points[hoverIndex].planned)} r="3" fill="#aebfb9" stroke="#fff" strokeWidth="1.5" />
           </>
         )}
@@ -117,7 +127,9 @@ export function ProjectAreaChart({ snapshot, tasks, startDate, targetDate }: {
           style={{ left: `min(max(0%, ${((hoverIndex ?? 0) / (points.length - 1)) * 100}% - 60px), calc(100% - 130px))` }}
         >
           <b>{shortLabel(hover.date)}</b>
-          <span className="ml-2 text-[#71807b]">계획 {Math.round(hover.planned)}h · 완료 {Math.round(hover.done)}h</span>
+          <span className="ml-2 text-[#71807b]">
+            계획 {Math.round(hover.planned)}h{(hoverIndex ?? 0) <= doneEnd ? ` · 완료 ${Math.round(hover.done)}h` : ""}
+          </span>
         </div>
       )}
     </div>

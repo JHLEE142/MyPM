@@ -2,7 +2,14 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AnalysisStatus, Project, SourceDocument } from "@mypm/shared-types";
+import type {
+  AnalysisStatus,
+  Project,
+  SourceDocument,
+  TaskUpdateApplyItem,
+  TaskUpdatePreview,
+  TaskUpdateProposal,
+} from "@mypm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";
@@ -17,6 +24,28 @@ const sourceStatus: Record<string, { label: string; tone: string }> = {
   failed: { label: "분석 실패", tone: "badge-danger" },
 };
 
+const priorityText: Record<string, string> = { critical: "최우선", high: "높음", medium: "보통", low: "낮음" };
+
+// 제안 1건이 무엇을 바꾸는지 "현재 값 → 새 값" 형태로 풀어 쓴다.
+function describeChange(item: TaskUpdateProposal): string {
+  if (item.action === "complete") {
+    const from = item.current ? `${Math.round(item.current.progress_percent)}%` : "현재 상태";
+    return `${from} → 100% 완료`;
+  }
+  if (item.action === "create") {
+    const parts = [`예상 ${item.estimated_hours ?? 1}시간`, `우선순위 ${priorityText[item.priority ?? "medium"]}`];
+    if (item.due_date) parts.push(`기한 ${item.due_date}`);
+    return `새 업무로 추가 · ${parts.join(" · ")}`;
+  }
+  const changes: string[] = [];
+  if (item.title != null && item.title !== item.current?.title) changes.push(`이름 “${item.current?.title ?? ""}” → “${item.title}”`);
+  if (item.progress_percent != null) changes.push(`진행률 ${Math.round(item.current?.progress_percent ?? 0)}% → ${Math.round(item.progress_percent)}%`);
+  if (item.estimated_hours != null) changes.push(`공수 ${item.current?.estimated_hours ?? 0}시간 → ${item.estimated_hours}시간`);
+  if (item.priority != null) changes.push(`우선순위 → ${priorityText[item.priority]}`);
+  if (item.due_date != null) changes.push(`기한 → ${item.due_date}`);
+  return changes.length ? changes.join(" · ") : "변경 내용 없음";
+}
+
 export default function SourcesPage() {
   const params = useParams<{ id: string }>(); const projectId = Number(params.id);
   const [project, setProject] = useState<Project | null>(null);
@@ -27,6 +56,10 @@ export default function SourcesPage() {
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [preview, setPreview] = useState<TaskUpdatePreview | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [previewing, setPreviewing] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
@@ -77,6 +110,49 @@ export default function SourcesPage() {
     try { await api.sources.addText(projectId, text.trim(), textName.trim() || "직접 입력.md"); setText(""); setNotice("텍스트 자료를 추가했습니다."); await load(true); }
     catch (e) { setError(errorMessage(e)); }
     finally { setBusy(false); }
+  }
+
+  async function previewUpdates() {
+    if (!text.trim()) return;
+    setPreviewing(true); setError(""); setNotice(""); setPreview(null);
+    try {
+      const result = await api.taskUpdates.preview(projectId, text.trim());
+      setPreview(result);
+      setSelected(new Set(result.updates.map((_, index) => index)));
+      if (result.updates.length === 0) setNotice("요약은 만들었지만 기존 업무와 연결되는 변경은 찾지 못했습니다.");
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setPreviewing(false); }
+  }
+
+  async function applyUpdates() {
+    if (!preview) return;
+    const items: TaskUpdateApplyItem[] = preview.updates
+      .filter((_, index) => selected.has(index))
+      .map((item) => ({
+        action: item.action,
+        task_id: item.task_id ?? null,
+        title: item.title ?? null,
+        progress_percent: item.progress_percent ?? null,
+        estimated_hours: item.estimated_hours ?? null,
+        priority: item.priority ?? null,
+        due_date: item.due_date ?? null,
+      }));
+    if (items.length === 0) return;
+    setApplying(true); setError(""); setNotice("");
+    try {
+      const result = await api.taskUpdates.apply(projectId, items);
+      setPreview(null); setSelected(new Set());
+      setNotice(`업무에 반영했습니다. 수정 ${result.updated}건 · 완료 ${result.completed}건 · 추가 ${result.created}건`);
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setApplying(false); }
+  }
+
+  function toggleSelected(index: number) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index); else next.add(index);
+      return next;
+    });
   }
 
   async function addUrl(event: React.FormEvent) {
@@ -134,10 +210,47 @@ export default function SourcesPage() {
             <h3 className="font-black">텍스트 직접 입력</h3><p className="mt-1 text-xs text-[#71807b]">회의 메모, 인터뷰, 이메일 요구사항을 붙여넣으세요.</p>
             <label className="mt-5 block"><span className="label">자료 이름</span><input className="field" value={textName} onChange={(e) => setTextName(e.target.value)} /></label>
             <label className="mt-4 block"><span className="label">내용</span><textarea className="field min-h-36" required value={text} onChange={(e) => setText(e.target.value)} placeholder="분석할 텍스트를 입력하세요." /></label>
-            <button className="btn btn-secondary mt-4 w-full" disabled={busy || !text.trim()}>텍스트 자료 추가</button>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button className="btn btn-secondary" disabled={busy || !text.trim()}>텍스트 자료 추가</button>
+              <button type="button" className="btn btn-primary" disabled={previewing || !text.trim()} onClick={() => void previewUpdates()}>{previewing ? "요약하는 중…" : "✦ 요약해 업무에 반영"}</button>
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-[#7a8984]">‘자료 추가’는 나중에 AI 분석으로 새 업무 후보를 만들고, ‘요약해 업무에 반영’은 이 메모를 요약해 <b>이미 있는 업무</b>의 진행률·완료 여부를 고칩니다.</p>
           </form>
         </div>
       </div>
+
+      {preview && (
+        <section className="panel mt-5 overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e2e9e6] p-5">
+            <div><p className="eyebrow">Update proposal</p><h3 className="mt-1 font-black">메모 요약과 반영 제안</h3><p className="mt-1 text-xs text-[#71807b]">{preview.provider} · 제안 {preview.updates.length}건 · 선택 {selected.size}건</p></div>
+            <div className="flex gap-2">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setPreview(null); setSelected(new Set()); }}>닫기</button>
+              <button type="button" className="btn btn-primary btn-sm" disabled={applying || selected.size === 0} onClick={() => void applyUpdates()}>{applying ? "반영 중…" : `선택 ${selected.size}건 반영`}</button>
+            </div>
+          </div>
+          <div className="border-b border-[#e2e9e6] bg-[#f7faf8] p-5"><p className="text-xs font-black text-[#5e706a]">요약</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#33423d]">{preview.summary || "요약 없음"}</p></div>
+          {preview.updates.length === 0 ? (
+            <EmptyState title="반영할 변경을 찾지 못했습니다" description="업무 이름이 메모에 드러나도록 적으면 더 잘 찾습니다." />
+          ) : (
+            <ul className="divide-y divide-[#e5ebe8]">
+              {preview.updates.map((item, index) => (
+                <li key={`${item.action}-${item.task_id ?? "new"}-${index}`} className="flex gap-3 p-4 sm:p-5">
+                  <input type="checkbox" className="mt-1 size-4 shrink-0 accent-[#166a58]" checked={selected.has(index)} aria-label={`${item.current?.title ?? item.title ?? "새 업무"} 반영 선택`} onChange={() => toggleSelected(index)} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`badge ${item.action === "complete" ? "badge-success" : item.action === "create" ? "badge-info" : "badge-neutral"}`}>{item.action === "complete" ? "완료 처리" : item.action === "create" ? "새 업무" : "수정"}</span>
+                      <p className="truncate text-sm font-bold">{item.current?.title ?? item.title ?? "새 업무"}</p>
+                      <span className="text-[11px] font-bold text-[#8b9995]">확신 {Math.round(item.confidence * 100)}%</span>
+                    </div>
+                    <p className="mt-1.5 text-xs leading-5 text-[#5e706a]">{describeChange(item)}</p>
+                    {item.reason && <p className="mt-1 text-[11px] leading-5 text-[#8b9995]">근거: {item.reason}</p>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="panel mt-5 overflow-hidden">
         <div className="flex items-center justify-between border-b border-[#e2e9e6] p-5"><div><h3 className="font-black">등록된 자료</h3><p className="mt-1 text-xs text-[#71807b]">{sources.length}개 문서</p></div>{analyzing && <span className="badge badge-info">분석 상태 확인 중</span>}</div>

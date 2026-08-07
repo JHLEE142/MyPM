@@ -183,6 +183,40 @@ export type TaskPatch = Partial<Omit<TaskCreate, "dependency_ids">> & {
   dependency_ids?: number[];
 };
 
+export type TaskUpdateAction = "update" | "complete" | "create";
+
+export interface TaskUpdateSnapshot {
+  id: number;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  estimated_hours: number;
+  progress_percent: number;
+  due_date: string | null;
+}
+
+export interface TaskUpdateApplyItem {
+  action: TaskUpdateAction;
+  task_id: number | null;
+  title?: string | null;
+  progress_percent?: number | null;
+  estimated_hours?: number | null;
+  priority?: TaskPriority | null;
+  due_date?: string | null;
+}
+
+export interface TaskUpdateProposal extends TaskUpdateApplyItem {
+  reason: string;
+  confidence: number;
+  current: TaskUpdateSnapshot | null;
+}
+
+export interface TaskUpdatePreview {
+  summary: string;
+  provider: string;
+  updates: TaskUpdateProposal[];
+}
+
 export interface Forecast {
   status: string;
   estimated_completion_date?: string | null;

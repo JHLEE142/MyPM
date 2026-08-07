@@ -27,6 +27,48 @@ function localDateKey(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
+// 업무 제목 인라인 수정: ✎ 클릭 → 입력, Enter/포커스 아웃 저장, Esc 취소
+function EditableTitle({ task, className, onRename }: { task: Task; className: string; onRename: (task: Task, title: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(task.title);
+  async function commit() {
+    setEditing(false);
+    const title = value.trim();
+    if (!title || title === task.title) return;
+    await onRename(task, title);
+  }
+  if (!editing) {
+    return (
+      <span className="flex min-w-0 flex-1 items-center gap-1">
+        <p className={className}>{task.title}</p>
+        <button
+          type="button"
+          className="shrink-0 px-0.5 text-xs text-[#9db3ab] hover:text-[#166a58]"
+          aria-label={`${task.title} 이름 수정`}
+          title="이름 수정"
+          onClick={() => { setValue(task.title); setEditing(true); }}
+        >✎</button>
+      </span>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      className="field min-w-0 flex-1 px-2 py-1 text-sm"
+      value={value}
+      maxLength={500}
+      aria-label={`${task.title} 새 이름`}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+        if (event.key === "Escape") { setValue(task.title); setEditing(false); }
+      }}
+      onDragStart={(event) => { event.preventDefault(); event.stopPropagation(); }}
+    />
+  );
+}
+
 export function SchedulePanel({ project, tasks, facts, schedule, versions, onChange }: { project: Project; tasks: Task[]; facts: ProjectFact[]; schedule: ScheduleVersion; versions: ScheduleVersionSummary[]; onChange: () => Promise<void> | void }) {
   const [view, setView] = useState<View>("daily");
   const [replanOpen, setReplanOpen] = useState(false);
@@ -154,6 +196,13 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
       else await api.tasks.reopen(task.id);
       await onChange();
     } catch (e) { setError(errorMessage(e)); }
+    finally { setTaskBusyId(null); }
+  }
+
+  async function renameTask(task: Task, title: string) {
+    setTaskBusyId(task.id); setError("");
+    try { await api.tasks.update(task.id, { title }); await onChange(); }
+    catch (e) { setError(errorMessage(e)); }
     finally { setTaskBusyId(null); }
   }
 
@@ -286,7 +335,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                   <div className="flex items-center gap-2.5">
                     <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                     <span className="text-base text-[#166a58]" aria-hidden>●</span>
-                    <div className="min-w-0 flex-1"><p className="text-sm font-black">{monthlyTask.title}</p><p className="text-[11px] text-[#71807b]">파생 진도 {Math.round(monthlyStats.progress)}% · 총 {formatHours(monthlyStats.hours)}</p></div>
+                    <div className="min-w-0 flex-1"><EditableTitle task={monthlyTask} className="truncate text-sm font-black" onRename={renameTask} /><p className="text-[11px] text-[#71807b]">파생 진도 {Math.round(monthlyStats.progress)}% · 총 {formatHours(monthlyStats.hours)}</p></div>
                     <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === monthlyTask.id} aria-label={`${monthlyTask.title} 하위 포함 삭제`} onClick={() => void removeTask(monthlyTask)}>하위 포함 삭제</button>
                   </div>
                   <div className="mt-2 space-y-2 pl-5">
@@ -297,7 +346,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                           <div className="flex items-center gap-2.5">
                             <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                             <span className="text-[#3b7c6c]" aria-hidden>◦</span>
-                            <div className="min-w-0 flex-1"><p className="text-sm font-bold">{weeklyTask.title}</p><p className="text-[11px] text-[#71807b]">{Math.round(weeklyStats.progress)}% · {formatHours(weeklyStats.hours)}</p></div>
+                            <div className="min-w-0 flex-1"><EditableTitle task={weeklyTask} className="truncate text-sm font-bold" onRename={renameTask} /><p className="text-[11px] text-[#71807b]">{Math.round(weeklyStats.progress)}% · {formatHours(weeklyStats.hours)}</p></div>
                             <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === weeklyTask.id} aria-label={`${weeklyTask.title} 하위 포함 삭제`} onClick={() => void removeTask(weeklyTask)}>하위 포함 삭제</button>
                           </div>
                           <div className="mt-1.5 space-y-1 pl-5">
@@ -306,7 +355,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                                 <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                                 <span className="text-[#71807b]" aria-hidden>·</span>
                                 <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={dailyTask.status === "completed"} disabled={taskBusyId === dailyTask.id} aria-label={`${dailyTask.title} 완료 체크`} onChange={(event) => void toggleComplete(dailyTask, event.target.checked)} />
-                                <p className={`min-w-0 flex-1 truncate text-sm ${dailyTask.status === "completed" ? "text-[#6e837b] line-through" : "font-medium"}`}>{dailyTask.title}</p>
+                                <EditableTitle task={dailyTask} className={`truncate text-sm ${dailyTask.status === "completed" ? "text-[#6e837b] line-through" : "font-medium"}`} onRename={renameTask} />
                                 <span className="shrink-0 text-[11px] font-bold text-[#71807b]">{formatHours(dailyTask.estimated_hours)}</span>
                                 <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === dailyTask.id} aria-label={`${dailyTask.title} 삭제`} onClick={() => void removeTask(dailyTask)}>삭제</button>
                               </div>
@@ -342,7 +391,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                       <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                       <span className="text-[#71807b]" aria-hidden>·</span>
                       <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />
-                      <div className="min-w-0 flex-1"><p className={`truncate text-sm font-bold ${task.status === "completed" ? "text-[#6e837b] line-through" : ""}`}>{task.title}</p><p className="text-[11px] text-[#71807b]">{formatHours(task.estimated_hours)} · {Math.round(task.progress_percent)}%{task.due_date ? ` · 기한 ${formatDate(task.due_date)}` : ""}{task.status !== "completed" && !["approved", "scheduled"].includes(task.status) ? ` · ${taskStatusLabel[task.status] ?? task.status}` : ""}</p></div>
+                      <div className="min-w-0 flex-1"><EditableTitle task={task} className={`truncate text-sm font-bold ${task.status === "completed" ? "text-[#6e837b] line-through" : ""}`} onRename={renameTask} /><p className="text-[11px] text-[#71807b]">{formatHours(task.estimated_hours)} · {Math.round(task.progress_percent)}%{task.due_date ? ` · 기한 ${formatDate(task.due_date)}` : ""}{task.status !== "completed" && !["approved", "scheduled"].includes(task.status) ? ` · ${taskStatusLabel[task.status] ?? task.status}` : ""}</p></div>
                       <button type="button" className="shrink-0 px-1 text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === task.id} aria-label={`${task.title} 삭제`} onClick={() => void removeTask(task)}>삭제</button>
                     </div>
                   ))}

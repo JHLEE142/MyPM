@@ -266,6 +266,42 @@ class TaskComplete(BaseModel):
     completed_date: date | None = None
 
 
+class TaskUpdatePreviewRequest(BaseModel):
+    """자료 탭에서 입력한 진행 메모 → 요약 + 기존 업무 변경 제안."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=20000)
+
+
+class TaskUpdateApplyItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["update", "complete", "create"]
+    task_id: int | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    progress_percent: float | None = Field(default=None, ge=0, le=100)
+    estimated_hours: float | None = Field(default=None, ge=0, le=10000)
+    priority: Literal["critical", "high", "medium", "low"] | None = None
+    due_date: date | None = None
+
+    @model_validator(mode="after")
+    def target_matches_action(self):
+        if self.action == "create":
+            if not (self.title or "").strip():
+                raise ValueError("create 항목에는 title이 필요합니다")
+        elif self.task_id is None:
+            raise ValueError("update/complete 항목에는 task_id가 필요합니다")
+        return self
+
+
+class TaskUpdateApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    updates: list[TaskUpdateApplyItem] = Field(min_length=1, max_length=50)
+    note: str | None = Field(default=None, max_length=20000)
+
+
 class TaskBlock(BaseModel):
     reason: str = Field(min_length=1)
 

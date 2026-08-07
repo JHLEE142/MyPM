@@ -203,3 +203,37 @@ class DraftChatResult(BaseModel):
     updated_fields: DraftFields = Field(default_factory=DraftFields)
     completeness_percent: float = Field(ge=0, le=100)
     next_question: str | None = None
+
+
+class TaskUpdateProposal(BaseModel):
+    """진행 메모에서 읽어낸 기존 업무 1건에 대한 변경 제안(또는 신규 업무 1건)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["update", "complete", "create"]
+    task_id: int | None = None  # create일 때만 None
+    title: str | None = Field(default=None, max_length=500)
+    progress_percent: float | None = Field(default=None, ge=0, le=100)
+    estimated_hours: float | None = Field(default=None, ge=0, le=10000)
+    priority: Literal["critical", "high", "medium", "low"] | None = None
+    due_date: date | None = None
+    reason: str = Field(default="", max_length=1000)
+    confidence: float = Field(default=0.7, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def target_matches_action(self):
+        if self.action == "create":
+            if not (self.title or "").strip():
+                raise ValueError("create 제안에는 title이 필요합니다")
+        elif self.task_id is None:
+            raise ValueError("update/complete 제안에는 task_id가 필요합니다")
+        return self
+
+
+class TaskUpdatePlan(BaseModel):
+    """자료 텍스트 1건에 대한 요약 + 기존 업무 반영 제안 묶음."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(default="", max_length=4000)
+    updates: list[TaskUpdateProposal] = Field(default_factory=list, max_length=50)

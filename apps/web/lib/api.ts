@@ -20,6 +20,8 @@ import type {
   Task,
   TaskCreate,
   TaskPatch,
+  TaskUpdateApplyItem,
+  TaskUpdatePreview,
 } from "@mypm/shared-types";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -110,6 +112,18 @@ export const api = {
         method: "POST",
         body: json(payload),
       }),
+  },
+  taskUpdates: {
+    preview: (projectId: number, text: string) =>
+      request<TaskUpdatePreview>(`/api/projects/${projectId}/task-updates/preview`, {
+        method: "POST",
+        body: json({ text }),
+      }),
+    apply: (projectId: number, updates: TaskUpdateApplyItem[]) =>
+      request<{ updated: number; completed: number; created: number }>(
+        `/api/projects/${projectId}/task-updates/apply`,
+        { method: "POST", body: json({ updates }) },
+      ),
   },
   tasks: {
     list: (projectId: number) => request<Task[]>(`/api/projects/${projectId}/tasks`),

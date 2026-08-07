@@ -16,7 +16,14 @@ from .cli_providers import ClaudeAgentProvider, CodexCliProvider, ProviderError
 from .document_analyzer import AnalysisProvider, AnthropicProvider, MockProvider
 from .gemini_provider import GeminiApiProvider
 from .openai_provider import OpenAiApiProvider
-from .schemas import DocumentAnalysis, DraftChatResult, DraftFields, HierarchicalTaskSet, ProjectAnalysis
+from .schemas import (
+    DocumentAnalysis,
+    DraftChatResult,
+    DraftFields,
+    HierarchicalTaskSet,
+    ProjectAnalysis,
+    TaskUpdatePlan,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -114,6 +121,17 @@ class AiRouter(AnalysisProvider):
             input_chars,
             self.analysis_order,
             lambda provider: provider.generate_hierarchical_tasks(analysis, context),
+        )
+
+    def plan_task_updates(
+        self, text: str, tasks: list[dict[str, Any]], project: dict[str, Any]
+    ) -> TaskUpdatePlan:
+        input_chars = len(text) + len(json.dumps(tasks, ensure_ascii=False, default=str))
+        return self._call(
+            "task_update_plan",
+            input_chars,
+            self.analysis_order,
+            lambda provider: provider.plan_task_updates(text, tasks, project),
         )
 
     def _call(
