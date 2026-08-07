@@ -12,7 +12,7 @@ const path = require("path");
 const CANDIDATE_ROOTS = [
   process.env.MYPM_ROOT,
   path.resolve(__dirname, "..", ".."),
-  path.join(process.env.HOME || "", "docenty", "pace-pm"),
+  path.join(process.env.HOME || "", "test", "MyPM"),
 ].filter(Boolean);
 const ROOT = CANDIDATE_ROOTS.find((root) => fs.existsSync(path.join(root, "apps", "api", "app", "main.py")));
 
