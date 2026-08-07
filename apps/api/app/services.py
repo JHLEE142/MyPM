@@ -435,11 +435,45 @@ def run_analysis(run_id: int, project_id: int) -> None:
         run.model_provider = getattr(provider, "last_provider_name", None) or provider.name
         merged = merge_project_analyses(analyses)
         project = db.get(Project, project_id)
+        analysis_today = date.today()
+        # 자료에 명시된 프로젝트 기간을 반영한다. 사용자가 직접 설정한 값은 덮어쓰지 않는다.
+        if project is not None:
+            doc_start = merged.project_start_date
+            doc_target = merged.project_target_date
+            if doc_target is None:
+                future_dates = [item.date for item in merged.fixed_dates if item.date >= analysis_today]
+                if future_dates:
+                    doc_target = max(future_dates)
+            # 생성 시 자동으로 들어간 기본값(시작=생성일, 목표=생성일+30일)은
+            # 사용자가 정한 값이 아니므로 문서 날짜로 대체 가능하다.
+            start_is_default = project.start_date is None or (
+                project.created_at is not None and project.start_date == project.created_at.date()
+            )
+            target_is_default = project.target_date is None or (
+                project.created_at is not None
+                and project.target_date == project.created_at.date() + timedelta(days=30)
+            )
+            # 목표일 먼저 적용해야 문서 기준 시작일이 기본 목표일(+30일)과 비교되지 않는다
+            if (
+                target_is_default
+                and doc_target is not None
+                and doc_target >= analysis_today
+                and (start_is_default or project.start_date is None or doc_target >= project.start_date)
+                and (doc_start is None or doc_target >= doc_start)
+            ):
+                project.target_date = doc_target
+                target_is_default = False
+            if (
+                start_is_default
+                and doc_start is not None
+                and (project.target_date is None or doc_start <= project.target_date)
+            ):
+                project.start_date = doc_start
         generation_context = {
-            "today": date.today().isoformat(),
+            "today": analysis_today.isoformat(),
             "project_name": project.name if project else "",
-            "start_date": project.start_date.isoformat() if project else "",
-            "target_date": project.target_date.isoformat() if project else "",
+            "start_date": project.start_date.isoformat() if project and project.start_date else "",
+            "target_date": project.target_date.isoformat() if project and project.target_date else "",
         }
         generate_hierarchy = getattr(provider, "generate_hierarchical_tasks", None)
         generated = (
@@ -523,7 +557,6 @@ def run_analysis(run_id: int, project_id: int) -> None:
         title_to_task: dict[str, Task] = {}
         generated_status = "pending_review" if review_gate_enabled() else "approved"
         priority_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-        analysis_today = date.today()
 
         for monthly_item in generated.monthly:
             daily_items = [daily for weekly in monthly_item.weekly for daily in weekly.daily]

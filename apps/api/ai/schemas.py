@@ -54,6 +54,9 @@ class DocumentAnalysis(BaseModel):
     task_candidates: list[TaskCandidate] = Field(default_factory=list)
     risks: list[ExtractedItem] = Field(default_factory=list)
     open_questions: list[ExtractedItem] = Field(default_factory=list)
+    # 문서에 명시된 프로젝트 전체 기간 (근거 없으면 None)
+    project_start_date: date | None = None
+    project_target_date: date | None = None
 
 
 class ProjectAnalysis(BaseModel):
@@ -66,6 +69,8 @@ class ProjectAnalysis(BaseModel):
     risks: list[ExtractedItem] = Field(default_factory=list)
     open_questions: list[ExtractedItem] = Field(default_factory=list)
     conflicts: list[ExtractedItem] = Field(default_factory=list)
+    project_start_date: date | None = None
+    project_target_date: date | None = None
 
 
 class GeneratedTask(TaskCandidate):

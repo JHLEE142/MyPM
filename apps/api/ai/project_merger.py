@@ -25,6 +25,12 @@ def merge_project_analyses(analyses: list[DocumentAnalysis]) -> ProjectAnalysis:
                 tasks.append(task)
     result.task_candidates = tasks
 
+    # 문서별 프로젝트 기간 제안은 가장 이른 시작·가장 늦은 목표로 합친다
+    start_dates = [analysis.project_start_date for analysis in analyses if analysis.project_start_date is not None]
+    target_dates = [analysis.project_target_date for analysis in analyses if analysis.project_target_date is not None]
+    result.project_start_date = min(start_dates) if start_dates else None
+    result.project_target_date = max(target_dates) if target_dates else None
+
     dates_with_sources: dict[str, set[int]] = {}
     for fixed in result.fixed_dates:
         dates_with_sources.setdefault(fixed.date.isoformat(), set()).add(fixed.source_block_id)

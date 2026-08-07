@@ -392,3 +392,51 @@ def test_weekly_anchor_assigns_due_dates_and_windows(client, monkeypatch):
     schedule = client.get(f"/api/projects/{project['id']}/schedule").json()
     daily_dates = [p["date"] for p in schedule["schedule_snapshot"]["placements"] if p["task_id"] == daily["id"]]
     assert daily_dates and min(daily_dates) >= "2099-01-10"  # due-6일 이후에만 배치
+
+
+def test_merge_project_period_uses_earliest_start_latest_target():
+    from ai.project_merger import merge_project_analyses
+    from ai.schemas import DocumentAnalysis
+
+    merged = merge_project_analyses([
+        DocumentAnalysis(document_summary="a", project_start_date=date(2099, 2, 1), project_target_date=date(2099, 5, 31)),
+        DocumentAnalysis(document_summary="b", project_start_date=date(2099, 1, 15), project_target_date=date(2099, 4, 30)),
+        DocumentAnalysis(document_summary="c"),
+    ])
+    assert merged.project_start_date == date(2099, 1, 15)
+    assert merged.project_target_date == date(2099, 5, 31)
+
+
+def test_analysis_applies_document_dates_to_unset_project_fields(client, monkeypatch):
+    monkeypatch.delenv("AI_REVIEW_GATE", raising=False)
+    project = client.post("/api/projects", json={"name": "기간 미설정"}).json()
+    # 생성 기본값(시작=오늘, 목표=+30일)은 사용자가 정한 값이 아니므로 문서 날짜로 대체되어야 한다
+    client.post(
+        f"/api/projects/{project['id']}/sources",
+        json={
+            "file_name": "kickoff.md",
+            "text": "# 계획\n2099-01-05 킥오프로 시작한다.\n2099-03-31 오픈 목표일.\n\n## 업무\n- 자료 요청 리스트 작성 2시간",
+        },
+    )
+    assert client.post(f"/api/projects/{project['id']}/analysis").status_code == 202
+    updated = client.get(f"/api/projects/{project['id']}").json()
+    assert updated["start_date"] == "2099-01-05"
+    assert updated["target_date"] == "2099-03-31"
+
+
+def test_analysis_keeps_user_set_project_dates(client, monkeypatch):
+    monkeypatch.delenv("AI_REVIEW_GATE", raising=False)
+    project = client.post(
+        "/api/projects", json={"name": "기간 설정됨", "start_date": "2099-06-01", "target_date": "2099-08-31"}
+    ).json()
+    client.post(
+        f"/api/projects/{project['id']}/sources",
+        json={
+            "file_name": "kickoff.md",
+            "text": "# 계획\n2099-01-05 킥오프로 시작한다.\n2099-03-31 오픈 목표일.\n\n## 업무\n- 자료 요청 리스트 작성 2시간",
+        },
+    )
+    assert client.post(f"/api/projects/{project['id']}/analysis").status_code == 202
+    updated = client.get(f"/api/projects/{project['id']}").json()
+    assert updated["start_date"] == "2099-06-01"
+    assert updated["target_date"] == "2099-08-31"

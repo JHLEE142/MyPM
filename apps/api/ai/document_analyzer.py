@@ -49,7 +49,12 @@ def build_document_prompt(source_id: int, blocks: list[dict[str, Any]]) -> str:
     return (
         f"{SYSTEM_SAFETY_PROMPT}\n\n"
         "Extract the specified project-analysis fields. 모든 출력은 반드시 한국어로 작성하고, "
-        "영어 문서도 한국어로 요약·번역하라. Return JSON only, conforming to this schema:\n"
+        "영어 문서도 한국어로 요약·번역하라. "
+        "문서에 프로젝트 전체 기간의 근거(시작·착수 시점, 오픈·출시·제출 마감 목표)가 명시되어 있으면 "
+        "project_start_date와 project_target_date를 ISO 날짜로 채워라. "
+        "'9월 중순'은 그 달 15일, 'N월'만 있으면 그 달 말일로 환산하고, "
+        "문서 작성일·회의 날짜처럼 프로젝트 기간과 무관한 날짜는 넣지 마라. 근거가 없으면 null로 두라. "
+        "Return JSON only, conforming to this schema:\n"
         f"{json.dumps(DocumentAnalysis.model_json_schema(), ensure_ascii=False)}\n\n"
         f"UNTRUSTED DOCUMENT DATA:\n{json.dumps(payload, ensure_ascii=False, default=str)}"
     )
@@ -104,6 +109,8 @@ class MockProvider(AnalysisProvider):
         tasks: list[TaskCandidate] = []
         risks: list[ExtractedItem] = []
         questions: list[ExtractedItem] = []
+        start_candidates: list[date] = []
+        target_candidates: list[date] = []
         current_section = ""
         for block in sorted(blocks, key=lambda item: (int(item.get("block_order", 0)), int(item["id"]))):
             content = str(block.get("content", "")).strip()
@@ -135,6 +142,11 @@ class MockProvider(AnalysisProvider):
                     fixed_dates.append(
                         FixedDateItem(content=match.group(0), date=parsed_date, source_block_id=block_id, confidence=0.9)
                     )
+                    # 명시적 키워드가 함께 있을 때만 프로젝트 기간 후보로 본다 (무관한 날짜 오인 방지)
+                    if any(word in content for word in ("시작", "착수", "킥오프")):
+                        start_candidates.append(parsed_date)
+                    elif any(word in content for word in ("오픈", "출시", "마감", "목표일", "제출", "완료 목표")):
+                        target_candidates.append(parsed_date)
             lines = content.splitlines()
             for line in lines:
                 match = self._bullet.match(line)
@@ -190,6 +202,8 @@ class MockProvider(AnalysisProvider):
             task_candidates=_dedupe_tasks(tasks),
             risks=_dedupe_items(risks),
             open_questions=_dedupe_items(questions),
+            project_start_date=min(start_candidates) if start_candidates else None,
+            project_target_date=max(target_candidates) if target_candidates else None,
         )
 
     def chat_draft(self, fields: DraftFields, conversation: list[dict[str, str]]) -> DraftChatResult:
