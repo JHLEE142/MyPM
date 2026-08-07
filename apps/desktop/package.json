@@ -1,0 +1,30 @@
+{
+  "name": "pacepm-desktop",
+  "version": "0.1.0",
+  "description": "PacePM 데스크톱 앱 (Electron 래퍼)",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "ai.docenty.pacepm",
+    "productName": "PacePM",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null
+    }
+  }
+}

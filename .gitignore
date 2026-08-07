@@ -14,3 +14,7 @@ out/
 
 # misc
 .DS_Store
+
+# Electron desktop
+apps/desktop/dist/
+apps/desktop/build/icon.iconset/

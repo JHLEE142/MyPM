@@ -408,6 +408,7 @@ def run_analysis(run_id: int, project_id: int) -> None:
             raise ValueError("분석할 수 있는 source가 없습니다")
         for source in sources:
             source.analysis_status = "analyzing"
+            source.error_message = None
         db.commit()
         total_characters = sum(len(block.content) for source in sources for block in source.blocks)
         if total_characters > MAX_ANALYSIS_CHARACTERS:
@@ -666,6 +667,7 @@ def run_analysis(run_id: int, project_id: int) -> None:
         run.completed_at = utcnow()
         for source in sources:
             source.analysis_status = "review_required" if review_gate_enabled() else "completed"
+            source.error_message = None
         db.commit()
         # 자동 승인 모드에서는 분석 → 일정 생성까지 자동으로 이어져 오늘 화면에 바로 반영된다.
         # 일정 생성 실패는 분석 결과를 되돌리지 않는다(수동 생성으로 복구 가능).
