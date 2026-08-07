@@ -18,3 +18,9 @@ out/
 # Electron desktop
 apps/desktop/dist/
 apps/desktop/build/icon.iconset/
+
+# 설치기가 생성한 에이전트 규칙 (프로젝트명·슬랙 채널명 등 개인정보 포함)
+# 배포되는 것은 agent-rules/AGENTS.template.md 뿐이다.
+/AGENTS.md
+/CLAUDE.md
+*.bak.20*

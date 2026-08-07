@@ -78,6 +78,19 @@ pace-pm/
 └── README.md
 ```
 
+## AI 에이전트 연동 (선택)
+
+캡처·회의록·슬랙 로그를 AI 코딩 에이전트에게 주기만 하면 MyPM의 업무·기한·진행률이 갱신되도록 규칙을 설치할 수 있습니다.
+
+```bash
+python3 scripts/install_agent_rules.py --dry-run   # 무엇이 바뀌는지 먼저 확인
+python3 scripts/install_agent_rules.py             # 두 단계 동의 후 설치
+```
+
+에이전트에게 데이터 변경 권한을 주는 설정이므로, 설치기는 고지 후 `동의` 입력과 변경 diff 확인을 각각 요구합니다.
+자율성 수준(`conservative` / `standard` / `autonomous`)을 고를 수 있고 `--uninstall`로 되돌립니다.
+자세한 내용은 [`agent-rules/README.md`](agent-rules/README.md)를 참고하세요.
+
 ## 검증
 
 ```bash
