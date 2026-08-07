@@ -1,7 +1,7 @@
 {
-  "name": "pacepm-desktop",
+  "name": "mypm-desktop",
   "version": "0.1.0",
-  "description": "PacePM 데스크톱 앱 (Electron 래퍼)",
+  "description": "MyPM 데스크톱 앱 (Electron 래퍼)",
   "private": true,
   "main": "main.js",
   "scripts": {
@@ -13,8 +13,8 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "ai.docenty.pacepm",
-    "productName": "PacePM",
+    "appId": "ai.docenty.mypm",
+    "productName": "MyPM",
     "directories": {
       "output": "dist"
     },

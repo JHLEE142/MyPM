@@ -1,1 +1,1 @@
-"""PacePM API application package."""
+"""MyPM API application package."""

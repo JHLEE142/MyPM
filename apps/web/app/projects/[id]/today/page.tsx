@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Dashboard, Project, ScheduleVersionSummary, Task } from "@pacepm/shared-types";
+import type { Dashboard, Project, ScheduleVersionSummary, Task } from "@mypm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";

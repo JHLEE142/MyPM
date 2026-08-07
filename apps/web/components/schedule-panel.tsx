@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import type { Project, ProjectFact, ReplanRequest, ScheduleComparison, ScheduleVersion, ScheduleVersionSummary, Task, TaskPriority } from "@pacepm/shared-types";
+import type { Project, ProjectFact, ReplanRequest, ScheduleComparison, ScheduleVersion, ScheduleVersionSummary, Task, TaskPriority } from "@mypm/shared-types";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatFullDate, formatHours, isoToday, priorityLabel, taskStatusLabel, taskStatusTone } from "@/lib/format";
 import { EmptyState, ErrorState } from "./feedback";

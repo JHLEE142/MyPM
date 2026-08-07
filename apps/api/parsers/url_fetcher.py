@@ -13,7 +13,7 @@ MAX_REDIRECTS = 3
 MAX_BLOCKS = 500
 MAX_IMAGE_BLOCKS = 30
 FETCH_TIMEOUT = 15.0
-USER_AGENT = "PacePM-SourceFetcher/1.0"
+USER_AGENT = "MyPM-SourceFetcher/1.0"
 
 
 class UrlFetchError(ValueError):

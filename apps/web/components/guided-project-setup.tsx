@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Draft, DraftFields, DraftTaskCandidate, TaskPriority } from "@pacepm/shared-types";
+import type { Draft, DraftFields, DraftTaskCandidate, TaskPriority } from "@mypm/shared-types";
 import { ErrorState } from "@/components/feedback";
 import { api, errorMessage } from "@/lib/api";
 

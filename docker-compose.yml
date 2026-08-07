@@ -2,13 +2,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: pacepm
-      POSTGRES_USER: pacepm
-      POSTGRES_PASSWORD: pacepm
+      POSTGRES_DB: mypm
+      POSTGRES_USER: mypm
+      POSTGRES_PASSWORD: mypm
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pacepm -d pacepm"]
+      test: ["CMD-SHELL", "pg_isready -U mypm -d mypm"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -18,7 +18,7 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
-      DATABASE_URL: postgresql+psycopg://pacepm:pacepm@postgres:5432/pacepm
+      DATABASE_URL: postgresql+psycopg://mypm:mypm@postgres:5432/mypm
       STORAGE_PATH: /app/storage
       MAX_UPLOAD_SIZE: "20971520"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

@@ -20,7 +20,7 @@ import type {
   Task,
   TaskCreate,
   TaskPatch,
-} from "@pacepm/shared-types";
+} from "@mypm/shared-types";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 

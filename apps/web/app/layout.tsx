@@ -3,7 +3,7 @@ import { AppHeader } from "@/components/app-header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PacePM — 프로젝트 페이스 매니저",
+  title: "MyPM — 마이 프로젝트 매니저",
   description: "자료에서 업무를 구조화하고 실행 가능한 일정으로 만드는 AI 프로젝트 매니저",
 };
 

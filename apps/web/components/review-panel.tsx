@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { AnalysisReview, ProjectFact, SourceDocument, Task, TaskPriority } from "@pacepm/shared-types";
+import type { AnalysisReview, ProjectFact, SourceDocument, Task, TaskPriority } from "@mypm/shared-types";
 import { api, errorMessage } from "@/lib/api";
 import { priorityLabel, taskStatusLabel } from "@/lib/format";
 import { EmptyState, ErrorState } from "./feedback";

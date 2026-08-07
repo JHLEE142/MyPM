@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Placement, ScheduleSnapshot, Task } from "@pacepm/shared-types";
+import type { Placement, ScheduleSnapshot, Task } from "@mypm/shared-types";
 
 type View = "daily" | "weekly" | "monthly";
 type TaskHours = { task: Task | undefined; hours: number };

@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AnalysisReview, Dashboard, Project, ScheduleVersion, ScheduleVersionSummary, Task } from "@pacepm/shared-types";
+import type { AnalysisReview, Dashboard, Project, ScheduleVersion, ScheduleVersionSummary, Task } from "@mypm/shared-types";
 import { ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { ProgressChart } from "@/components/progress-chart";

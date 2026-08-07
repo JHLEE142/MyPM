@@ -83,7 +83,7 @@ class _CliProvider(AnalysisProvider):
         if not _CLI_SEMAPHORE.acquire(blocking=False):
             raise ProviderError(f"{self.name} is busy")
         try:
-            with tempfile.TemporaryDirectory(prefix="pacepm-ai-") as directory:
+            with tempfile.TemporaryDirectory(prefix="mypm-ai-") as directory:
                 workdir = Path(directory)
                 process = subprocess.Popen(
                     self._args(workdir),

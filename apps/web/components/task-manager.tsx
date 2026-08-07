@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Task, TaskCreate, TaskPriority, TaskStatus } from "@pacepm/shared-types";
+import type { Task, TaskCreate, TaskPriority, TaskStatus } from "@mypm/shared-types";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, priorityLabel, taskStatusLabel, taskStatusTone } from "@/lib/format";
 import { EmptyState, ErrorState } from "./feedback";

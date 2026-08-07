@@ -4,7 +4,7 @@ import os
 import tempfile
 from pathlib import Path
 
-TEST_ROOT = Path(tempfile.mkdtemp(prefix="pacepm-tests-"))
+TEST_ROOT = Path(tempfile.mkdtemp(prefix="mypm-tests-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_ROOT / 'test.db'}"
 os.environ["STORAGE_PATH"] = str(TEST_ROOT / "storage")
 os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -38,7 +38,7 @@ def client():
 @pytest.fixture
 def project_payload():
     return {
-        "name": "PacePM test",
+        "name": "MyPM test",
         "start_date": "2099-01-05",
         "target_date": "2099-02-27",
         "work_days": [0, 1, 2, 3, 4],

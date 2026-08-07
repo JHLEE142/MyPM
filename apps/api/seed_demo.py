@@ -15,7 +15,7 @@ DEMO_TODAY = date(2026, 8, 6)
 
 DEMO_PROJECTS = [
     {
-        "name": "PacePM 베타 출시",
+        "name": "MyPM 베타 출시",
         "owner": "이정현",
         "description": "핵심 프로젝트 관리 흐름을 안정화하고 베타 버전을 출시합니다.",
         "start_date": date(2026, 8, 1),

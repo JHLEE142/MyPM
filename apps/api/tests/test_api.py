@@ -81,7 +81,7 @@ def test_mock_analysis_review_approve_schedule_e2e(client, project_payload):
         f"/api/projects/{project['id']}/sources",
         json={
             "file_name": "brief.md",
-            "text": "# 목표\nPacePM MVP를 출시한다.\n\n## 업무\n- 프로젝트 API 구현 2시간\n- 일정 테스트 작성 1시간",
+            "text": "# 목표\nMyPM MVP를 출시한다.\n\n## 업무\n- 프로젝트 API 구현 2시간\n- 일정 테스트 작성 1시간",
         },
     )
     assert source.status_code == 201, source.text

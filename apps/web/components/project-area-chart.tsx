@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ScheduleSnapshot, Task } from "@pacepm/shared-types";
+import type { ScheduleSnapshot, Task } from "@mypm/shared-types";
 
 type Point = { date: string; planned: number; done: number };
 

@@ -1,6 +1,6 @@
-# PacePM
+# MyPM
 
-PacePM(Project Pace Manager)은 프로젝트 자료를 분석해 목표·산출물·업무 후보를 구조화하고, 사용자가 승인한 업무를 실제 가용시간에 맞춰 일간·주간·월간 일정으로 배치하는 프로젝트 매니저입니다. AI 분석 없이도 수동 업무 관리, 오늘 할 일, 진행률, 페이스와 완료일 예측을 사용할 수 있습니다.
+MyPM(My Project Manager)은 프로젝트 자료를 분석해 목표·산출물·업무 후보를 구조화하고, 사용자가 승인한 업무를 실제 가용시간에 맞춰 일간·주간·월간 일정으로 배치하는 프로젝트 매니저입니다. AI 분석 없이도 수동 업무 관리, 오늘 할 일, 진행률, 페이스와 완료일 예측을 사용할 수 있습니다.
 
 ## 주요 화면
 
@@ -26,7 +26,7 @@ cp .env.example .env
 uvicorn app.main:app --reload --env-file .env
 ```
 
-기본값은 `sqlite:///./pacepm.db`이며 API는 `http://localhost:8000`에서 실행됩니다. `ANTHROPIC_API_KEY`가 없으면 결정론적 Mock 분석기를 사용합니다.
+기본값은 `sqlite:///./mypm.db`이며 API는 `http://localhost:8000`에서 실행됩니다. `ANTHROPIC_API_KEY`가 없으면 결정론적 Mock 분석기를 사용합니다.
 
 데모 데이터는 `cd apps/api && .venv/bin/python seed_demo.py`로 프로젝트 5개를 추가합니다(`DATABASE_URL` 적용, 같은 이름은 건너뜀).
 
@@ -57,7 +57,7 @@ docker compose up --build
 
 | 변수 | 서비스 | 기본값 | 설명 |
 |---|---|---|---|
-| `DATABASE_URL` | API | `sqlite:///./pacepm.db` | SQLAlchemy 연결 문자열. Compose는 PostgreSQL 사용 |
+| `DATABASE_URL` | API | `sqlite:///./mypm.db` | SQLAlchemy 연결 문자열. Compose는 PostgreSQL 사용 |
 | `ANTHROPIC_API_KEY` | API | 없음 | 미설정 시 Mock Provider 사용 |
 | `STORAGE_PATH` | API | `storage` | 업로드 원본 저장 경로 |
 | `MAX_UPLOAD_SIZE` | API | `20971520` | 파일당 최대 크기(byte) |

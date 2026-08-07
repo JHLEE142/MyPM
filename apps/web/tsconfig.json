@@ -20,7 +20,7 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "@pacepm/shared-types": ["../../packages/shared-types/index.ts"]
+      "@mypm/shared-types": ["../../packages/shared-types/index.ts"]
     }
   },
   "include": [

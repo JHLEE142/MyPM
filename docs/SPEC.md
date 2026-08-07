@@ -1,4 +1,4 @@
-# PacePM (Project Pace Manager) — MVP 사양서
+# MyPM (My Project Manager) — MVP 사양서
 
 > 원 기획안을 개발용으로 정리한 단일 소스 오브 트루스. 구현·리뷰·QA는 이 문서를 기준으로 한다.
 

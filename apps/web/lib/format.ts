@@ -1,4 +1,4 @@
-import type { PaceStatus, TaskPriority, TaskStatus } from "@pacepm/shared-types";
+import type { PaceStatus, TaskPriority, TaskStatus } from "@mypm/shared-types";
 
 export const formatDate = (value?: string | null) => {
   if (!value) return "—";

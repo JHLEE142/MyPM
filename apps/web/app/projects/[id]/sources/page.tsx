@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AnalysisStatus, Project, SourceDocument } from "@pacepm/shared-types";
+import type { AnalysisStatus, Project, SourceDocument } from "@mypm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";

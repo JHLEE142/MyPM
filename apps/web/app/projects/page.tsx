@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Dashboard, Project, ScheduleSnapshot, Task } from "@pacepm/shared-types";
+import type { Dashboard, Project, ScheduleSnapshot, Task } from "@mypm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
 import { ProjectAreaChart } from "@/components/project-area-chart";
 import { api, errorMessage } from "@/lib/api";

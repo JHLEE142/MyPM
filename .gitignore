@@ -2,7 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
-pacepm.db
+mypm.db
 *.db
 apps/api/storage/
 .env

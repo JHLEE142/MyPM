@@ -1,6 +1,6 @@
-# PacePM API
+# MyPM API
 
-FastAPI와 SQLAlchemy 2.0으로 구현한 PacePM MVP 백엔드입니다. API 시작 시 테이블을 자동 생성하며, `ANTHROPIC_API_KEY`가 없으면 결정론적 Mock 분석기를 사용합니다.
+FastAPI와 SQLAlchemy 2.0으로 구현한 MyPM MVP 백엔드입니다. API 시작 시 테이블을 자동 생성하며, `ANTHROPIC_API_KEY`가 없으면 결정론적 Mock 분석기를 사용합니다.
 
 ## 실행
 
@@ -10,7 +10,7 @@ cp .env.example .env
 .venv/bin/uvicorn app.main:app --reload --env-file .env
 ```
 
-기본 데이터베이스는 `sqlite:///./pacepm.db`, 기본 파일 저장소는 `./storage`, 업로드 제한은 20MB입니다. PostgreSQL을 사용할 때는 `DATABASE_URL=postgresql+psycopg://...` 형식으로 지정할 수 있습니다(해당 드라이버는 배포 환경에서 제공해야 합니다).
+기본 데이터베이스는 `sqlite:///./mypm.db`, 기본 파일 저장소는 `./storage`, 업로드 제한은 20MB입니다. PostgreSQL을 사용할 때는 `DATABASE_URL=postgresql+psycopg://...` 형식으로 지정할 수 있습니다(해당 드라이버는 배포 환경에서 제공해야 합니다).
 
 ## 테스트
 

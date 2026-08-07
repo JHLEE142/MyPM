@@ -58,7 +58,7 @@ def test_seed_demo_creates_five_projects_with_tasks_and_schedules():
             name: Counter(db.scalars(select(Task.status).where(Task.project_id == project.id)))
             for name, project in by_name.items()
         }
-        assert statuses["PacePM 베타 출시"]["completed"] == 4
+        assert statuses["MyPM 베타 출시"]["completed"] == 4
         assert sum(statuses["고객사 A SI 구축"].values()) == 10
         assert statuses["고객사 A SI 구축"]["completed"] == 2
         assert statuses["고객사 A SI 구축"]["in_progress"] == 1

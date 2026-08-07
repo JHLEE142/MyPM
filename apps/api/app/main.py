@@ -21,7 +21,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="PacePM API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="MyPM API", version="0.1.0", lifespan=lifespan)
 cors_origins = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")

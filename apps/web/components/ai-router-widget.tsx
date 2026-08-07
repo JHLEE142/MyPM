@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { RouterStatus } from "@pacepm/shared-types";
+import type { RouterStatus } from "@mypm/shared-types";
 import { api } from "@/lib/api";
 
 const providerLabels: Record<string, string> = {

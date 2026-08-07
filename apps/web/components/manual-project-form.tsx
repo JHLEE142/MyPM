@@ -77,7 +77,7 @@ export function ManualProjectForm() {
         {step === 1 && (
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="sm:col-span-2"><h2 className="text-xl font-black">어떤 프로젝트인가요?</h2><p className="mt-1 text-sm text-[#71807b]">일정의 기준이 될 이름과 날짜를 입력합니다.</p></div>
-            <label className="sm:col-span-2"><span className="label">프로젝트 이름 *</span><input className="field" value={name} onChange={(event) => setName(event.target.value)} maxLength={255} placeholder="예: PacePM MVP 출시" autoFocus /></label>
+            <label className="sm:col-span-2"><span className="label">프로젝트 이름 *</span><input className="field" value={name} onChange={(event) => setName(event.target.value)} maxLength={255} placeholder="예: MyPM MVP 출시" autoFocus /></label>
             <label className="sm:col-span-2"><span className="label">설명</span><textarea className="field min-h-28" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="프로젝트의 목표, 성공 기준, 중요한 배경을 적어주세요." /></label>
             <label><span className="label">시작일 *</span><input className="field" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
             <label><span className="label">목표일 *</span><input className="field" type="date" min={startDate} value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /></label>
