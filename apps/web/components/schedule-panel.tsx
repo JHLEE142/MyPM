@@ -5,6 +5,7 @@ import type { Project, ProjectFact, ReplanRequest, ScheduleComparison, ScheduleV
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatFullDate, formatHours, isoToday, priorityLabel, taskStatusLabel, taskStatusTone } from "@/lib/format";
 import { EmptyState, ErrorState } from "./feedback";
+import { Pagination, usePagination } from "./pagination";
 
 type View = "daily" | "weekly" | "monthly";
 const strategies: Array<{ id: ReplanRequest["strategy"]; title: string; description: string }> = [
@@ -154,6 +155,12 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
     for (const task of dateTasks) { const date = task.due_date || task.planned_end_date || ""; const key = date.slice(0, 7); groups.set(key, [...(groups.get(key) ?? []), task]); }
     return [...groups.entries()];
   }, [leafListTasks]);
+
+  const flatPages = usePagination(flatTasks);
+  const monthlyPages = usePagination(monthlyRoots);
+  const dailyPages = usePagination(daily);
+  const weeklyPages = usePagination(weekly);
+  const monthlyViewPages = usePagination(monthly);
 
   async function generate() {
     setBusy(true); setError("");
@@ -327,7 +334,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
         <div className="border-b border-[#e2e9e6]">
           <div className="flex items-center justify-between px-4 pt-4"><h3 className="text-sm font-black">업무 목록 <span className="font-bold text-[#71807b]">({leafListTasks.filter((task) => task.status === "completed").length}/{leafListTasks.length} 완료)</span></h3></div>
           <div className="space-y-3 p-4">
-            {monthlyRoots.map((monthlyTask) => {
+            {monthlyPages.pageItems.map((monthlyTask) => {
               const monthlyStats = taskStats.get(monthlyTask.id) ?? { hours: monthlyTask.estimated_hours, progress: 0, completedHours: 0 };
               const weeklyTasks = childrenByParent.get(monthlyTask.id) ?? [];
               return (
@@ -368,6 +375,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                 </div>
               );
             })}
+            <Pagination {...monthlyPages} onChange={monthlyPages.setPage} label="월간 업무 그룹" />
             {dragging?.kind === "leaf" && flatTasks.length === 0 && (
               <div
                 className="rounded-xl border-2 border-dashed border-[#c9d8d2] bg-[#f8faf9] p-4 text-center text-xs font-bold text-[#5e706a]"
@@ -386,7 +394,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
               <div className="rounded-xl border border-[#dfe7e4] bg-[#f8faf9] p-3">
                 <h4 className="mb-2 text-xs font-black text-[#5e706a]">기타 업무</h4>
                 <div className="space-y-1">
-                  {flatTasks.map((task) => (
+                  {flatPages.pageItems.map((task) => (
                     <div key={task.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${task.status === "completed" ? "bg-[#eef6f2]" : "bg-white"}${dragHighlight(task)}`} {...dragProps("flat", task, flatTasks, "leaf", null)}>
                       <span className="cursor-grab select-none text-[#9db3ab]" aria-hidden title="드래그하여 순서 변경">⠿</span>
                       <span className="text-[#71807b]" aria-hidden>·</span>
@@ -396,6 +404,7 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
                     </div>
                   ))}
                 </div>
+                <Pagination {...flatPages} onChange={flatPages.setPage} label="기타 업무" />
               </div>
             )}
           </div>
@@ -413,9 +422,9 @@ export function SchedulePanel({ project, tasks, facts, schedule, versions, onCha
 
       {!snapshot || snapshot.placements.length === 0 ? <EmptyState title="생성된 일정이 없습니다" description="승인된 업무를 추가한 뒤 일정 생성 버튼을 누르세요." /> : (
         <div className="p-4 sm:p-5">
-          {view === "daily" && <div className="space-y-4">{daily.map(([date, placements]) => <div key={date} className="grid gap-3 border-b border-[#e7edea] pb-4 md:grid-cols-[150px_1fr]"><div><p className="font-black">{formatFullDate(date)}</p><p className="mt-1 text-xs text-[#71807b]">총 {formatHours(placements.reduce((sum, item) => sum + item.hours, 0))}</p></div><div className="space-y-2">{placements.map((item, index) => { const task = taskMap.get(item.task_id); return <div key={`${item.task_id}-${index}`} className="flex items-center justify-between gap-3 rounded-lg bg-[#f5f8f6] px-3 py-2"><div className="flex min-w-0 items-center gap-2.5">{task && <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />}<div className="min-w-0"><p className={`truncate text-sm font-bold ${task?.status === "completed" ? "text-[#6e837b] line-through" : ""}`}>{task?.title ?? `업무 #${item.task_id}`}</p><span className={`badge mt-1 ${taskStatusTone(task?.status ?? "approved")}`}>{taskStatusLabel[task?.status ?? "approved"] ?? task?.status}</span></div></div><div className="flex shrink-0 items-center gap-2"><b className="text-xs">{formatHours(item.hours)}</b>{task && <button type="button" className="text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === task.id} aria-label={`${task.title} 삭제`} onClick={() => void removeTask(task)}>삭제</button>}</div></div>; })}</div></div>)}</div>}
-          {view === "weekly" && <div className="space-y-4">{weekly.map(([week, dates]) => { const ids = [...new Set(dates.flatMap(([, items]) => items.map((item) => item.task_id)))]; const completed = ids.filter((id) => taskMap.get(id)?.status === "completed").length; return <article key={week} className="card p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-black">{formatDate(week)} 시작 주</h3><p className="mt-1 text-xs text-[#71807b]">업무 {ids.length}개 · {dates.reduce((sum, [, items]) => sum + items.reduce((value, item) => value + item.hours, 0), 0).toFixed(1)}시간</p></div><span className="badge badge-success">완료율 {ids.length ? Math.round(completed / ids.length * 100) : 0}%</span></div><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{dates.map(([date, items]) => <div key={date} className="rounded-lg bg-[#f4f7f5] p-3"><p className="text-xs font-black">{formatDate(date)}</p><div className="mt-2 space-y-1">{items.map((item) => <p key={`${item.task_id}-${date}`} className="truncate text-[11px] text-[#5f706a]">• {taskMap.get(item.task_id)?.title ?? `업무 #${item.task_id}`}</p>)}</div></div>)}</div></article>; })}</div>}
-          {view === "monthly" && <div className="space-y-5">{facts.filter((fact) => fact.fact_type === "deadline" && fact.review_status === "approved").length > 0 && <div className="warning-banner"><p className="text-xs font-black uppercase tracking-[.08em]">목표 · 마일스톤</p><ul className="mt-2 space-y-1 text-sm">{facts.filter((fact) => fact.fact_type === "deadline" && fact.review_status === "approved").map((fact) => <li key={fact.id}>• {fact.content}</li>)}</ul></div>}{monthly.length === 0 ? <EmptyState title="기한이 설정된 업무가 없습니다" description="업무 수정에서 기한을 설정하면 월간 목록에 표시됩니다." /> : monthly.map(([month, monthTasks]) => <article key={month}><h3 className="mb-2 text-lg font-black">{month.replace("-", ".")} 월간 일정</h3><div className="divide-y divide-[#e6ece9] rounded-xl border border-[#dfe7e4]">{monthTasks.map((task) => <div key={task.id} className="flex items-center justify-between gap-3 p-3"><div><p className="text-sm font-bold">{task.title}</p><p className="mt-1 text-xs text-[#71807b]">{task.milestone_id ? `마일스톤 #${task.milestone_id}` : "프로젝트 업무"}</p></div><div className="text-right"><b className="text-xs">{formatDate(task.due_date || task.planned_end_date)}</b><span className={`badge ml-2 ${taskStatusTone(task.status)}`}>{taskStatusLabel[task.status] ?? task.status}</span></div></div>)}</div></article>)}</div>}
+          {view === "daily" && <div className="space-y-4">{dailyPages.pageItems.map(([date, placements]) => <div key={date} className="grid gap-3 border-b border-[#e7edea] pb-4 md:grid-cols-[150px_1fr]"><div><p className="font-black">{formatFullDate(date)}</p><p className="mt-1 text-xs text-[#71807b]">총 {formatHours(placements.reduce((sum, item) => sum + item.hours, 0))}</p></div><div className="space-y-2">{placements.map((item, index) => { const task = taskMap.get(item.task_id); return <div key={`${item.task_id}-${index}`} className="flex items-center justify-between gap-3 rounded-lg bg-[#f5f8f6] px-3 py-2"><div className="flex min-w-0 items-center gap-2.5">{task && <input type="checkbox" className="size-4 shrink-0 accent-[#166a58]" checked={task.status === "completed"} disabled={taskBusyId === task.id} aria-label={`${task.title} 완료 체크`} onChange={(event) => void toggleComplete(task, event.target.checked)} />}<div className="min-w-0"><p className={`truncate text-sm font-bold ${task?.status === "completed" ? "text-[#6e837b] line-through" : ""}`}>{task?.title ?? `업무 #${item.task_id}`}</p><span className={`badge mt-1 ${taskStatusTone(task?.status ?? "approved")}`}>{taskStatusLabel[task?.status ?? "approved"] ?? task?.status}</span></div></div><div className="flex shrink-0 items-center gap-2"><b className="text-xs">{formatHours(item.hours)}</b>{task && <button type="button" className="text-xs font-bold text-[#a33a36] hover:underline" disabled={taskBusyId === task.id} aria-label={`${task.title} 삭제`} onClick={() => void removeTask(task)}>삭제</button>}</div></div>; })}</div></div>)}<Pagination {...dailyPages} onChange={dailyPages.setPage} label="일간 일정" /></div>}
+          {view === "weekly" && <div className="space-y-4">{weeklyPages.pageItems.map(([week, dates]) => { const ids = [...new Set(dates.flatMap(([, items]) => items.map((item) => item.task_id)))]; const completed = ids.filter((id) => taskMap.get(id)?.status === "completed").length; return <article key={week} className="card p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-black">{formatDate(week)} 시작 주</h3><p className="mt-1 text-xs text-[#71807b]">업무 {ids.length}개 · {dates.reduce((sum, [, items]) => sum + items.reduce((value, item) => value + item.hours, 0), 0).toFixed(1)}시간</p></div><span className="badge badge-success">완료율 {ids.length ? Math.round(completed / ids.length * 100) : 0}%</span></div><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{dates.map(([date, items]) => <div key={date} className="rounded-lg bg-[#f4f7f5] p-3"><p className="text-xs font-black">{formatDate(date)}</p><div className="mt-2 space-y-1">{items.map((item) => <p key={`${item.task_id}-${date}`} className="truncate text-[11px] text-[#5f706a]">• {taskMap.get(item.task_id)?.title ?? `업무 #${item.task_id}`}</p>)}</div></div>)}</div></article>; })}<Pagination {...weeklyPages} onChange={weeklyPages.setPage} label="주간 일정" /></div>}
+          {view === "monthly" && <div className="space-y-5">{facts.filter((fact) => fact.fact_type === "deadline" && fact.review_status === "approved").length > 0 && <div className="warning-banner"><p className="text-xs font-black uppercase tracking-[.08em]">목표 · 마일스톤</p><ul className="mt-2 space-y-1 text-sm">{facts.filter((fact) => fact.fact_type === "deadline" && fact.review_status === "approved").map((fact) => <li key={fact.id}>• {fact.content}</li>)}</ul></div>}{monthly.length === 0 ? <EmptyState title="기한이 설정된 업무가 없습니다" description="업무 수정에서 기한을 설정하면 월간 목록에 표시됩니다." /> : monthlyViewPages.pageItems.map(([month, monthTasks]) => <article key={month}><h3 className="mb-2 text-lg font-black">{month.replace("-", ".")} 월간 일정</h3><div className="divide-y divide-[#e6ece9] rounded-xl border border-[#dfe7e4]">{monthTasks.map((task) => <div key={task.id} className="flex items-center justify-between gap-3 p-3"><div><p className="text-sm font-bold">{task.title}</p><p className="mt-1 text-xs text-[#71807b]">{task.milestone_id ? `마일스톤 #${task.milestone_id}` : "프로젝트 업무"}</p></div><div className="text-right"><b className="text-xs">{formatDate(task.due_date || task.planned_end_date)}</b><span className={`badge ml-2 ${taskStatusTone(task.status)}`}>{taskStatusLabel[task.status] ?? task.status}</span></div></div>)}</div></article>)}<Pagination {...monthlyViewPages} onChange={monthlyViewPages.setPage} label="월간 일정" /></div>}
         </div>
       )}
 

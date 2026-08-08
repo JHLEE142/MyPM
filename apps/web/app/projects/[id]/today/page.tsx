@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dashboard, Project, ScheduleVersionSummary, Task } from "@mypm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
+import { Pagination, usePagination } from "@/components/pagination";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";
 import { formatFullDate, formatHours, isoToday, taskStatusLabel } from "@/lib/format";
@@ -42,8 +43,10 @@ export default function TodayPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
-  const todayTasks = dashboard?.today.items.map((item) => ({ item, task: taskMap.get(item.task_id) })).filter((entry) => entry.task) ?? [];
-  const completed = todayTasks.filter(({ task }) => task?.status === "completed").length;
+  const todayTasksAll = dashboard?.today.items.map((item) => ({ item, task: taskMap.get(item.task_id) })).filter((entry) => entry.task) ?? [];
+  const todayPages = usePagination(todayTasksAll);
+  const todayTasks = todayPages.pageItems;
+  const completed = todayTasksAll.filter(({ task }) => task?.status === "completed").length;
 
   async function saveProgress(task: Task) {
     setBusyId(task.id); setError(""); setSaved("");
@@ -88,7 +91,7 @@ export default function TodayPage() {
 
       <section className="panel overflow-hidden">
         <div className="border-b border-[#e2e9e6] p-5"><h2 className="font-black">오늘 예정 업무</h2><p className="mt-1 text-xs text-[#71807b]">체크하면 즉시 완료 처리되며, 메모도 완료 이력에 함께 기록됩니다.</p></div>
-        {todayTasks.length === 0 ? <EmptyState title="오늘 배정된 업무가 없습니다" description="계획 화면에서 승인된 업무로 일정을 생성하거나 수동 업무를 추가하세요." action={<Link href={`/projects/${projectId}/plan`} className="btn btn-primary">계획으로 이동</Link>} /> : (
+        {todayTasksAll.length === 0 ? <EmptyState title="오늘 배정된 업무가 없습니다" description="계획 화면에서 승인된 업무로 일정을 생성하거나 수동 업무를 추가하세요." action={<Link href={`/projects/${projectId}/plan`} className="btn btn-primary">계획으로 이동</Link>} /> : (
           <div className="divide-y divide-[#e5ebe8]">
             {todayTasks.map(({ item, task }) => task && (
               <article key={task.id} className={`p-5 ${task.status === "completed" ? "bg-[#f7faf8]" : ""}`}>
@@ -107,6 +110,7 @@ export default function TodayPage() {
                 </div>
               </article>
             ))}
+            <Pagination {...todayPages} onChange={todayPages.setPage} label="오늘 예정 업무" />
           </div>
         )}
       </section>

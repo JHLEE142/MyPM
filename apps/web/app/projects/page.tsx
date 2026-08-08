@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dashboard, Project, ScheduleSnapshot, Task } from "@mypm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
+import { Pagination, usePagination } from "@/components/pagination";
 import { ProjectAreaChart } from "@/components/project-area-chart";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatHours, isoToday, paceLabel, paceTone } from "@/lib/format";
@@ -40,6 +41,9 @@ export default function ProjectsPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  const chartPages = usePagination(rows);
+  const listPages = usePagination(rows);
+
   const summary = useMemo(() => ({
     active: rows.filter(({ project }) => project.status === "active").length,
     risky: rows.filter(({ dashboard }) => dashboard && ["risk", "critical"].includes(dashboard.pace.status)).length,
@@ -72,7 +76,7 @@ export default function ProjectsPage() {
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {rows.map(({ project, dashboard, tasks, snapshot }) => {
+            {chartPages.pageItems.map(({ project, dashboard, tasks, snapshot }) => {
               const status = dashboard?.pace.status ?? "warning";
               return (
                 <Link key={project.id} href={`/projects/${project.id}/plan`} className="card block p-4 transition-shadow hover:shadow-md">
@@ -89,6 +93,7 @@ export default function ProjectsPage() {
               );
             })}
           </div>
+          <Pagination {...chartPages} onChange={chartPages.setPage} label="진행 현황 카드" />
         </section>
       )}
 
@@ -109,8 +114,9 @@ export default function ProjectsPage() {
             <span>프로젝트</span><span>진행 상태</span><span>일정</span><span>다음 마일스톤</span><span />
           </div>
           <div className="divide-y divide-[#e5ebe8]">
-            {rows.map((row) => <ProjectListRow key={row.project.id} row={row} deleting={deleting === row.project.id} onDelete={() => void remove(row)} />)}
+            {listPages.pageItems.map((row) => <ProjectListRow key={row.project.id} row={row} deleting={deleting === row.project.id} onDelete={() => void remove(row)} />)}
           </div>
+          <Pagination {...listPages} onChange={listPages.setPage} label="프로젝트 목록" />
         </section>
       )}
     </main>

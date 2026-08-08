@@ -5,6 +5,7 @@ import type { AnalysisReview, ProjectFact, SourceDocument, Task, TaskPriority } 
 import { api, errorMessage } from "@/lib/api";
 import { priorityLabel, taskStatusLabel } from "@/lib/format";
 import { EmptyState, ErrorState } from "./feedback";
+import { Pagination, usePagination } from "./pagination";
 
 type Selection = { kind: "task"; data: Task } | { kind: "fact"; data: ProjectFact };
 const categories = [
@@ -23,6 +24,7 @@ export function ReviewPanel({ projectId, review, sources, onChange }: { projectI
   const items = useMemo<Selection[]>(() => category === "task"
     ? review.tasks.map((data) => ({ kind: "task", data }))
     : review.facts.filter((fact) => fact.fact_type === category).map((data) => ({ kind: "fact", data })), [category, review]);
+  const itemPages = usePagination(items);
   const current = selected && items.some((item) => item.kind === selected.kind && item.data.id === selected.data.id)
     ? selected
     : items[0] ?? null;
@@ -64,12 +66,12 @@ export function ReviewPanel({ projectId, review, sources, onChange }: { projectI
         </nav>
         <div className="border-b border-[#e2e9e6] lg:border-b-0 lg:border-r">
           <div className="border-b border-[#edf1ef] px-4 py-3 text-[11px] font-black uppercase tracking-[.1em] text-[#81908b]">추출 항목</div>
-          {items.length === 0 ? <EmptyState title="항목이 없습니다" description="이 분류에서 추출된 내용이 없습니다." /> : <div className="max-h-[470px] divide-y divide-[#edf1ef] overflow-y-auto">{items.map((item) => {
+          {items.length === 0 ? <EmptyState title="항목이 없습니다" description="이 분류에서 추출된 내용이 없습니다." /> : <div className="max-h-[470px] divide-y divide-[#edf1ef] overflow-y-auto">{itemPages.pageItems.map((item) => {
             const active = current?.kind === item.kind && current.data.id === item.data.id;
             const title = item.kind === "task" ? item.data.title : item.data.content;
             const status = item.kind === "task" ? item.data.status : item.data.review_status;
             return <button type="button" key={`${item.kind}-${item.data.id}`} onClick={() => { setSelected(item); setEdit(false); }} className={`w-full p-4 text-left ${active ? "bg-[#edf6f2]" : "hover:bg-[#fafcfb]"}`}><div className="flex gap-2"><span className="mt-1 text-[#166a58]">{category === "constraint" ? "⚠" : "•"}</span><div className="min-w-0"><p className="line-clamp-2 text-sm font-bold leading-5">{title}</p><p className="mt-2 text-[11px] text-[#7a8884]">{taskStatusLabel[status] ?? (status === "approved" ? "승인됨" : status === "rejected" ? "거절됨" : "검토 대기")} · 신뢰도 {Math.round((item.data.confidence ?? 0) * 100)}%</p></div></div></button>;
-          })}</div>}
+          })}<Pagination {...itemPages} onChange={itemPages.setPage} label="검토 항목" /></div>}
         </div>
         <div className="p-5">
           {!current ? <EmptyState title="검토할 항목을 선택하세요" description="왼쪽 분류와 중앙 목록에서 항목을 선택하면 근거가 표시됩니다." /> : (

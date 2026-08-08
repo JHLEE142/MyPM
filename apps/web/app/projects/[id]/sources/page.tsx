@@ -11,6 +11,7 @@ import type {
   TaskUpdateProposal,
 } from "@mypm/shared-types";
 import { EmptyState, ErrorState, LoadingState } from "@/components/feedback";
+import { Pagination, usePagination } from "@/components/pagination";
 import { ProjectNav } from "@/components/project-nav";
 import { api, errorMessage } from "@/lib/api";
 import { useRefreshListener } from "@/lib/refresh";
@@ -67,6 +68,8 @@ export default function SourcesPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const sourcePages = usePagination(sources);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setError("");
@@ -256,12 +259,12 @@ export default function SourcesPage() {
 
       <section className="panel mt-5 overflow-hidden">
         <div className="flex items-center justify-between border-b border-[#e2e9e6] p-5"><div><h3 className="font-black">등록된 자료</h3><p className="mt-1 text-xs text-[#71807b]">{sources.length}개 문서</p></div>{analyzing && <span className="badge badge-info">분석 상태 확인 중</span>}</div>
-        {sources.length === 0 ? <EmptyState title="등록된 자료가 없습니다" description="파일을 올리거나 텍스트를 직접 입력해 프로젝트의 맥락을 추가하세요." /> : <div className="divide-y divide-[#e5ebe8]">{sources.map((source) => { const status = sourceStatus[source.analysis_status] ?? { label: source.analysis_status, tone: "badge-neutral" }; return (
+        {sources.length === 0 ? <EmptyState title="등록된 자료가 없습니다" description="파일을 올리거나 텍스트를 직접 입력해 프로젝트의 맥락을 추가하세요." /> : <div className="divide-y divide-[#e5ebe8]">{sourcePages.pageItems.map((source) => { const status = sourceStatus[source.analysis_status] ?? { label: source.analysis_status, tone: "badge-neutral" }; return (
           <article key={source.id} className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center">
             <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf3f0] text-xs font-black uppercase text-[#40675b]">{source.file_type}</div>
             <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-bold">{source.file_name}</p><span className={`badge ${status.tone}`}>{status.label}</span></div><p className="mt-1 text-xs text-[#788681]">원문 블록 {source.blocks.length}개 · {new Date(source.uploaded_at).toLocaleString("ko-KR")}</p>{source.error_message && <p className="mt-2 text-xs leading-5 text-[#a33a36]">{source.error_message} {source.file_type === "hwp" ? "HWPX 또는 PDF로 변환해 다시 업로드해 주세요." : ""}</p>}</div>
             <button type="button" className="btn btn-danger btn-sm" disabled={deleting === source.id || analyzing} onClick={() => void remove(source)}>{deleting === source.id ? "삭제 중…" : "삭제"}</button>
-          </article>); })}</div>}
+          </article>); })}<Pagination {...sourcePages} onChange={sourcePages.setPage} label="등록된 자료" /></div>}
       </section>
     </main>
   );

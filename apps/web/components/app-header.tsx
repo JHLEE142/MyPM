@@ -19,6 +19,7 @@ export function AppHeader() {
           <AiRouterWidget />
           <RefreshButton />
           <Link href="/projects" className="no-drag btn btn-ghost btn-sm">프로젝트</Link>
+          <Link href="/daily-report" className="no-drag btn btn-ghost btn-sm">데일리</Link>
           <Link href="/settings" className="no-drag btn btn-ghost btn-sm">설정</Link>
           <Link href="/projects/new" className="no-drag btn btn-primary btn-sm"><span aria-hidden>＋</span> 새 프로젝트</Link>
         </nav>
