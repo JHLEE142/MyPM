@@ -237,3 +237,12 @@ class TaskUpdatePlan(BaseModel):
 
     summary: str = Field(default="", max_length=4000)
     updates: list[TaskUpdateProposal] = Field(default_factory=list, max_length=50)
+
+
+class DailyReportDraft(BaseModel):
+    """일일 보고 초안을 사용자 문체로 다듬은 결과."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=8000)
+    notes: list[str] = Field(default_factory=list, max_length=10)

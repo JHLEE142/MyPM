@@ -37,6 +37,15 @@ def client():
 
 
 @pytest.fixture
+def db_session():
+    """API를 거치지 않고 직접 조회·조작할 때 쓰는 세션."""
+    from app.database import SessionLocal
+
+    with SessionLocal() as session:
+        yield session
+
+
+@pytest.fixture
 def project_payload():
     return {
         "name": "MyPM test",

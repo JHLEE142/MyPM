@@ -27,6 +27,7 @@ from ai.router import AiRouter, get_ai_router, router_status
 from ai.schemas import DraftFields
 
 from ..database import get_db
+from ..reports import build_daily_report, render_report_text
 from ..models import (
     AnalysisRun,
     ProjectDraft,
@@ -562,6 +563,21 @@ async def create_source(project_id: int, request: Request, db: Session = Depends
         await run_in_threadpool(storage_path.unlink, missing_ok=True)
         raise
     return db.scalar(_source_query(project_id).where(SourceDocument.id == source.id))
+
+
+@router.get("/reports/daily")
+def daily_report(date_: str | None = None, db: Session = Depends(get_db)):
+    """Slack 일일 보고 초안. `?date_=YYYY-MM-DD`로 특정 날짜를 지정할 수 있다."""
+    if date_:
+        try:
+            target = date.fromisoformat(date_)
+        except ValueError:
+            raise HTTPException(422, "date_는 YYYY-MM-DD 형식이어야 합니다") from None
+    else:
+        target = date.today()
+    report = build_daily_report(db, target)
+    report["text"] = render_report_text(report)
+    return report
 
 
 @router.get("/projects/{project_id}/sources", response_model=list[SourceDocumentOut])

@@ -91,6 +91,18 @@ python3 scripts/install_agent_rules.py             # 두 단계 동의 후 설�
 자율성 수준(`conservative` / `standard` / `autonomous`)을 고를 수 있고 `--uninstall`로 되돌립니다.
 자세한 내용은 [`agent-rules/README.md`](agent-rules/README.md)를 참고하세요.
 
+## 일일 보고 초안 (선택)
+
+Slack에 매일 올리는 업무 보고(`전일 / 금일 / 주간 목표 / 월간 목표`)를 MyPM 데이터에서 만들어 준다.
+
+```bash
+apps/api/.venv/bin/python scripts/daily_report.py --copy            # 초안을 클립보드로
+apps/api/.venv/bin/python scripts/daily_report.py --install-schedule # 평일 매일 자동 생성
+```
+
+초안을 파일로 저장하고 알림만 띄운다. Slack에 자동으로 올리지는 않는다.
+자세한 내용은 [`docs/daily-report.md`](docs/daily-report.md)를 참고하세요.
+
 ## 검증
 
 ```bash
